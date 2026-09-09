@@ -904,12 +904,6 @@ let PENDING=[
   {id:"p2",name:"ผศ.ดร. ประสิทธิ์ ชูเกียรติ",email:"prasit@ptru.ac.th",tel:"0864455667",school:"",aff:"",
    program:"EDU3",group:"คณิตศาสตร์",teachLevel:"",exp:"18",role:"MajorAdvisor",at:"2026-08-30"}];
 
-/* คงตัวแปรไว้เพื่อไม่ให้โค้ดส่วนอื่นที่อ้างถึงพัง แต่ระบบรหัสเชิญถูกยกเลิกแล้ว
-   ไม่มีหน้าจอหรือคำสั่งใดอ่านหรือเขียนรายการนี้อีก */
-let INVITES_UNUSED=[
-  {id:"iv1",code:"PTRU-MTR-8F3K",role:"Mentor",school:SCHOOLS[0],term:"1/2569",expires:"2026-09-30",used:3,quota:5},
-  {id:"iv2",code:"PTRU-DIR-2Q9L",role:"Director",school:SCHOOLS[2],term:"1/2569",expires:"2026-09-30",used:0,quota:2}];
-
 /* ---------- 8. ชั้นวิเคราะห์ ---------- */
 /** คะแนนรายตัวชี้วัดของฝ่ายหนึ่งในรอบหนึ่ง
     round เป็น undefined หมายถึงใช้รอบล่าสุดจากคลังกลาง */
@@ -3959,11 +3953,6 @@ function concatCols(A,B){
   });
 }
 /** เลือกค่าคอลัมน์ที่ระบุในแต่ละแถว แล้วคืนเป็นเวกเตอร์ (n×1) */
-function gatherCol(A,cols){
-  const out=tnode(A.r,1);
-  for(let i=0;i<A.r;i++) out.d[i]=A.d[i*A.c+cols[i]];
-  return push(out,()=>{ for(let i=0;i<A.r;i++) A.g[i*A.c+cols[i]]+=out.g[i]; });
-}
 /** ค่าเสียหาย binary cross-entropy เฉลี่ยเฉพาะแถวที่มาสก์เป็น 1 */
 function bceLoss(logits,y,mask){
   let n=0,L=0;
@@ -4523,21 +4512,6 @@ function iqIRT(cid){ const m=mirtModel(S.irtModel), k="mirt"+cid+m;
   return IQ_CACHE[k]||(IQ_CACHE[k]=irtCalibrate(cid,30,m)); }
 let MIRT_CACHE=null;
 
-function twoLineSVG(xs,a,b,la,lb,ymax){
-  const W=470,H=210,padL=34,padB=28,padT=14;
-  const X=i=>padL+(xs.length<2?.5:i/(xs.length-1))*(W-padL-16);
-  const Y=v=>H-padB-clamp(v/ymax,0,1)*(H-padB-padT);
-  let grid="";
-  [0,.25,.5,.75,1].forEach(p=>{const v=p*ymax;
-    grid+=`<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W-16}" y2="${Y(v).toFixed(1)}" stroke="var(--line-soft)"/>
-      <text x="${padL-5}" y="${(Y(v)+3).toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end">${(p*100).toFixed(0)}%</text>`;});
-  const path=arr=>arr.map((v,i)=>(i?"L":"M")+X(i).toFixed(1)+","+Y(v).toFixed(1)).join(" ");
-  const xt=xs.map((l,i)=>(i%5===0)?`<text x="${X(i).toFixed(1)}" y="${H-10}" font-size="10" fill="var(--muted)" text-anchor="middle">${l}</text>`:"").join("");
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="เส้นโค้งการเรียนรู้">
-    ${grid}<path d="${path(b)}" fill="none" stroke="var(--l2)" stroke-width="2" stroke-dasharray="4 3"/>
-    <path d="${path(a)}" fill="none" stroke="var(--l5)" stroke-width="2.5"/>${xt}</svg>
-    <div class="legend"><span><i style="background:var(--l5)"></i>${esc(la)}</span><span><i style="background:var(--l2)"></i>${esc(lb)}</span></div>`;
-}
 function iccSVG(a,b){
   const W=460,H=200,padL=34,padB=26,padT=12;
   const X=t=>padL+((t+4)/8)*(W-padL-14);
@@ -5298,22 +5272,6 @@ function edmPage(){
   </div>`;
 }
 
-function edmNotReady(m,cache){
-  return `<div class="stack">
-    ${card(m.name,"สถานะ: ยังไม่เชื่อมต่อบริการฝึกโมเดล",
-      `<p style="font-size:.88rem">${esc(m.note)}</p>
-       <p style="font-size:.88rem;margin-top:.7rem">แบบจำลองกลุ่มนี้ต้องฝึกด้วยลำดับการตอบของผู้เรียนจำนวนมากและประมวลผลบนเซิร์ฟเวอร์
-       ต้นแบบนี้ทำงานในเบราว์เซอร์และมีผู้เรียนเพียง ${cache.rows.length} คน จึงไม่สามารถฝึกให้ได้ผลที่มีความหมายทางสถิติ
-       ระบบจะไม่แสดงค่าความแม่นยำใด ๆ จนกว่าจะเชื่อมต่อบริการจริง เพราะตัวเลขที่ไม่ได้มาจากโมเดลที่ฝึกแล้วจะทำให้เข้าใจผิด</p>`)}
-    ${card("ข้อกำหนดการเชื่อมต่อ","สัญญาบริการที่ฝ่ายพัฒนาต้องจัดทำ",
-      `<table class="tight"><tbody>
-        <tr><td style="width:190px;color:var(--muted)">ปลายทาง</td><td>POST /api/v1/edm/predict?model=${m.id}</td></tr>
-        <tr><td style="color:var(--muted)">ข้อมูลส่งเข้า</td><td>student_id, program, year, sequence[] (ลำดับการตอบรายตัวชี้วัดพร้อมเวลา), behavior{evidence, ontime}</td></tr>
-        <tr><td style="color:var(--muted)">ข้อมูลส่งกลับ</td><td>risk (0–1), class, confidence, feature_attribution[], model_version, trained_at, cv_metrics</td></tr>
-        <tr><td style="color:var(--muted)">ขนาดข้อมูลขั้นต่ำ</td><td>โดยทั่วไปต้องมีลำดับการตอบระดับหลักพันถึงหลักหมื่นรายการจึงจะฝึกได้</td></tr>
-        <tr><td style="color:var(--muted)">เงื่อนไขก่อนใช้งาน</td><td>เปรียบเทียบกับ Logistic Regression เป็นเส้นฐาน และตรวจความเป็นธรรมระหว่างสาขาวิชาและชั้นปี</td></tr>
-      </tbody></table>`,"",false)}</div>`;
-}
 
 function edmCompare(cache){
   const rows=EDM_MODELS.filter(m=>!m.deep).map(m=>{
@@ -8649,15 +8607,8 @@ function saveInd(y, cid, ind, quiet) {
   clearTimeout(LIVE_INDTIMER[ind.id]);
   LIVE_INDTIMER[ind.id] = setTimeout(() => {
     const cf = cfgEdit(y, cid);
-    const desc = {};
-    (ind.descriptors || []).forEach((d, k) => { desc[k + 1] = d; });
-    /* ตัวชี้วัดที่สร้างในหน้าเว็บมีรหัสชั่วคราวแบบ I1 I2 ซึ่งฐานข้อมูลไม่รู้จัก
-       ส่งรหัสว่างไปแทน เซิร์ฟเวอร์จะสร้างระเบียนใหม่แล้วคืนรหัสจริงกลับมาให้ผูกไว้ */
-    const known = /-/.test(String(ind.id));
-    livePush('ind.save', {ind_id: known ? ind.id : '',
-      year: y, comp_id: cid, seq: cf.indicators.findIndex(x => x.id === ind.id) + 1,
-      text: ind.th, irt_a: ind.irt.a, irt_b: ind.irt.b,
-      cdm_g: ind.cdm.g, cdm_s: ind.cdm.s, q_vector: ind.q, descriptors: desc},
+    const seq = cf.indicators.findIndex(x => x.id === ind.id) + 1;
+    livePush('ind.save', indPayload(y, cid, ind, seq),
       quiet ? '' : 'บันทึกตัวชี้วัดและเกณฑ์การประเมินลงฐานข้อมูลแล้ว',
       r => { if (r && r.ind_id && r.ind_id !== ind.id) ind.id = r.ind_id; });
   }, 800);
@@ -8667,7 +8618,57 @@ function saveInd(y, cid, ind, quiet) {
 function saveIndSet(y, cid) {
   if (!liveOn()) return;
   const cf = cfgEdit(y, cid);
-  cf.indicators.forEach((i, n) => setTimeout(() => saveInd(y, cid, i, n > 0), n * 60));
+  if (!cf.indicators.length) return;
+  IND_BULK.push(...cf.indicators.map((ind, n) => indPayload(y, cid, ind, n + 1)));
+  IND_BULK_REF.push(...cf.indicators);
+  flushIndBulk();
+}
+/** แปลงตัวชี้วัดหนึ่งข้อเป็นรูปแบบที่ ind.save และ ind.saveBulk รับ */
+function indPayload(y, cid, ind, seq) {
+  const desc = {};
+  (ind.descriptors || []).forEach((d, k) => { desc[k + 1] = d; });
+  return {ind_id: /-/.test(String(ind.id)) ? ind.id : '',
+          year: y, comp_id: cid, seq: seq, text: ind.th,
+          irt_a: ind.irt.a, irt_b: ind.irt.b,
+          cdm_g: ind.cdm.g, cdm_s: ind.cdm.s, q_vector: ind.q, descriptors: desc};
+}
+/** รวมตัวชี้วัดที่รอบันทึกไว้ก่อน แล้วส่งขึ้นฐานข้อมูลเป็นคำขอเดียว
+    การสร้างตัวชี้วัดทั้งชั้นปีมีราว 170 ข้อ ถ้ายิงทีละข้อจะเป็น 170 คำขอ
+    Apps Script ตอบคำขอละหลายวินาที รวมแล้วหลายนาทีและเสี่ยงชนโควตา */
+let IND_BULK = [], IND_BULK_REF = [], IND_BULK_TIMER = null, IND_BULK_OK = true;
+function flushIndBulk() {
+  clearTimeout(IND_BULK_TIMER);
+  IND_BULK_TIMER = setTimeout(async () => {
+    const items = IND_BULK.splice(0), refs = IND_BULK_REF.splice(0);
+    if (!items.length || !liveOn()) return;
+
+    /* เซิร์ฟเวอร์รุ่นก่อนยังไม่มีเส้นทาง ind.saveBulk
+       ถอยไปบันทึกทีละข้อให้ยังใช้งานได้ แล้วจำไว้ว่าไม่ต้องลองใหม่ในครั้งถัดไป */
+    if (IND_BULK_OK) {
+      liveBusy(1); toastSaving();
+      try {
+        const r = await API.call('ind.saveBulk', {items: items});
+        const ids = (r && r.ids) || [];
+        refs.forEach((ind, k) => { if (ids[k]) ind.id = ids[k]; });
+        LIVE.err = '';
+        LIVE.info = `บันทึกตัวชี้วัดและเกณฑ์การประเมิน ${items.length} ข้อลงฐานข้อมูลแล้ว`;
+        toastSaved(LIVE.info);
+        return;
+      } catch (e) {
+        const noRoute = String(e && e.code) === 'NO_ROUTE' || /ไม่พบคำสั่ง/.test((e && e.message) || '');
+        if (!noRoute) { liveErr(e); toastFailed((e && e.message) || ''); return; }
+        IND_BULK_OK = false;
+        LIVE.note = 'เซิร์ฟเวอร์ยังเป็นรุ่นก่อน กรุณาอัปเดต Code.gs เพื่อให้บันทึกตัวชี้วัดได้เร็วขึ้น';
+      } finally { liveBusy(-1); render(); }
+    }
+    /* ทางถอย: ยิงทีละข้อแบบเดิม ช้ากว่ามากแต่ยังบันทึกได้ครบ */
+    refs.forEach((ind, k) => setTimeout(() => {
+      const it = items[k];
+      livePush('ind.save', it, k === refs.length - 1
+        ? `บันทึกตัวชี้วัดและเกณฑ์การประเมิน ${items.length} ข้อลงฐานข้อมูลแล้ว` : '',
+        r => { if (r && r.ind_id) ind.id = r.ind_id; });
+    }, k * 120));
+  }, 250);
 }
 
 /*───────── 21.13 การเปลี่ยนค่าในกล่องเลือก ─────────*/
@@ -9034,7 +9035,6 @@ function aiSuggestGroups(){
     {t:"เกี่ยวกับระบบ",q:common},
   ];
 }
-function aiSuggestions(){ return aiSuggestGroups().flatMap(g=>g.q).slice(0,6); }
 
 function aiBody(){
   if(AI.tab==="chat"){
