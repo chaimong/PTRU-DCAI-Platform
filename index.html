@@ -1184,7 +1184,8 @@ const S={
   mode:"light", hue:"royal", a11y:"none", scale:1, drawer:false,
   year:4, fwTab:"year", fwSel:FW.competencies[0].id, psyTab:"irt", psyYear:4,
   dxSid:null, dxTab:"irt", dxCdm:false,
-  prgSid:null, iqMsg:"", irrTab:"sum", pfPhotoMsg:"", pfPhotoErr:false, xaiTab:"global", xaiModel:"logreg", xaiSid:null, fy:"all", fp:"all", repView:null, repMsg:"", repErr:false, irtModel:"m4pl", irtCmp:false, edmModel:"logreg", edmCompare:false, edmSid:null, edmBusy:false,
+  prgSid:null, iqMsg:"", irrTab:"sum", pfPhotoMsg:"", pfPhotoErr:false, xaiTab:"global", xaiModel:"logreg", xaiSid:null, fy:"all", fp:"all", repView:null, repMsg:"", repErr:false, irtModel:"m4pl", irtCmp:false,
+  mtState:null, mtDiag:null, mtLoad:null, edmModel:"logreg", edmCompare:false, edmSid:null, edmBusy:false,
   iqComp:null, iqTab:"ctt", iqItem:0,
   examComp:null, examAns:{}, examItems:[], examAttemptId:null, examDone:false, examQ:0, examBusy:false, examDbSaved:false, pfTab:"info", pfMsg:"", pfErr:"", histRound:"all",
   usrTab:"list", usrFilter:{role:"all",program:"all",year:"all",q:""}, usrEdit:null,
@@ -1202,7 +1203,7 @@ const S={
 const NAV={
   /* ยกเลิกเมนูรหัสเชิญแล้ว การควบคุมสิทธิ์ย้ายไปอยู่ที่เมนู "คำขอสมัคร"
      ครูพี่เลี้ยงและผู้บริหารสมัครเองได้ แล้วประธานหลักสูตรเป็นผู้อนุมัติ */
-  Administrator:["dashboard","users","approvals","framework","itemq","psychometrics","edm","xai","irr","progress","diagnostic","reports"],
+  Administrator:["dashboard","users","approvals","framework","itemq","psychometrics","edm","xai","irr","progress","diagnostic","reports","maintenance"],
   Dean:["dashboard","analytics","progress","diagnostic","reports"],
   "Program Chair":["dashboard","users","students","approvals","analytics","portfolio","progress","diagnostic","reports"],
   Lecturer:["dashboard","profile","students","assess","portfolio","progress"],
@@ -1217,7 +1218,7 @@ const canVerifyEvidence=()=>EV_VERIFIERS.includes(S.role);
 const NAV_LABEL={dashboard:"หน้าหลัก",users:"ผู้ใช้งานและกลุ่ม",approvals:"คำขอสมัคร",
   framework:"กรอบสมรรถนะรายชั้นปี",psychometrics:"โมเดลวัดผล",assess:"การประเมิน",students:"นักศึกษา",
   portfolio:"แฟ้มสะสมงาน",myladder:"พัฒนาการของฉัน",analytics:"วิเคราะห์ภาพรวม",
-  diagnostic:"รายงานวินิจฉัยรายบุคคล",progress:"ความก้าวหน้ารายบุคคล",profile:"โปรไฟล์ของฉัน",edm:"Educational Data Mining",xai:"XAI & Fairness",irr:"ความสอดคล้องผู้ประเมิน",itemq:"คุณภาพข้อสอบ",exam:"แบบทดสอบสมรรถนะ",reports:"รายงาน"};
+  diagnostic:"รายงานวินิจฉัยรายบุคคล",progress:"ความก้าวหน้ารายบุคคล",profile:"โปรไฟล์ของฉัน",edm:"Educational Data Mining",xai:"XAI & Fairness",irr:"ความสอดคล้องผู้ประเมิน",itemq:"คุณภาพข้อสอบ",exam:"แบบทดสอบสมรรถนะ",reports:"รายงาน",maintenance:"ซ่อมบำรุงฐานข้อมูล"};
 
 /* ประเภทการประเมิน สี่ประเภทแรกเป็นฝ่ายที่นับเข้าคะแนนรวมตาม SCORE_RULE
    peer และ director บันทึกไว้ได้แต่ไม่ถูกนำมาคิดคะแนนรวม */
@@ -5667,6 +5668,96 @@ function downloadFile(name,content,mime){
     return true;
   }catch(e){ return false; }
 }
+/* ---------- หน้าซ่อมบำรุงฐานข้อมูล (เฉพาะผู้ดูแลระบบ) ----------
+   รวมสามงานที่ผู้ดูแลต้องใช้ตอนดูแลข้อมูลจริงไว้ที่เดียว
+   คือเปิดปิดโหมดซ่อมบำรุง ตรวจสอบความสมบูรณ์ของฐานข้อมูล และดูสถานะการใช้งานพร้อมกัน */
+const MT_LV={error:["tag-risk","ต้องแก้ไข"],warn:["tag-warn","ควรตรวจสอบ"],info:["tag-n","แจ้งให้ทราบ"]};
+function maintenancePage(){
+  const live=(typeof liveOn==="function")&&liveOn();
+  const mt=(LIVE.status&&LIVE.status.maintenance)||S.mtState||{on:false,allow_read:true,message:""};
+  const dg=S.mtDiag;
+
+  const onCard=card("โหมดซ่อมบำรุงฐานข้อมูล",
+    "เปิดไว้ระหว่างที่ท่านกำลังแก้ไขข้อมูลในชีตโดยตรง ระบบจะกันไม่ให้ผู้ใช้อื่นเขียนทับ ผู้ดูแลระบบยังทำงานได้ตามปกติ",
+    `<div class="alert ${mt.on?"alert-warn":"alert-ok"}" style="margin-top:0">
+       <b>${mt.on?"🔧 เปิดโหมดซ่อมบำรุงอยู่":"✅ ระบบเปิดให้ใช้งานตามปกติ"}</b>
+       ${mt.on?`<br>ขณะนี้ ${mt.allow_read?"ผู้ใช้อื่นเปิดดูข้อมูลได้ แต่บันทึกไม่ได้":"ผู้ใช้อื่นเข้าใช้งานไม่ได้เลย"}
+         ${mt.at?`<br>เปิดเมื่อ ${esc(String(mt.at).slice(0,16).replace("T"," "))}`:""}`:""}</div>
+     <div class="field"><label for="mt_msg">ข้อความที่ผู้ใช้จะเห็น</label>
+       <input class="inp" id="mt_msg" value="${esc(mt.message||"ระบบอยู่ระหว่างการซ่อมบำรุงฐานข้อมูล กรุณาลองใหม่อีกครั้งภายหลัง")}" ${mt.on?"disabled":""} data-nore></div>
+     <div class="field"><label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+       <input type="checkbox" id="mt_read" ${mt.allow_read!==false?"checked":""} ${mt.on?"disabled":""}>
+       <span>ยังให้ผู้ใช้อื่นเปิดดูข้อมูลได้ (ปิดเฉพาะการบันทึก)</span></label>
+       <div class="hint">หากไม่ติ๊ก ระบบจะตัดเซสชันของผู้ใช้ทั่วไปทั้งหมดและให้เข้าใช้ไม่ได้จนกว่าจะปิดโหมดนี้</div></div>
+     ${live?"":`<div class="alert alert-info">โหมดนี้ทำงานกับฐานข้อมูลจริงเท่านั้น ขณะนี้อยู่ในโหมดสาธิต</div>`}`,
+    live?`<div class="row">
+      ${mt.on
+        ? `<button class="btn btn-primary btn-sm" data-act="mtoff">ปิดโหมดซ่อมบำรุง เปิดให้ใช้งานตามปกติ</button>`
+        : `<button class="btn btn-danger btn-sm" data-act="mton">เปิดโหมดซ่อมบำรุง</button>`}
+      </div>`:"");
+
+  const diagCard=card("ตรวจสอบความสมบูรณ์ของฐานข้อมูล",
+    "ตรวจโครงสร้างชีต การอ้างอิงข้ามตาราง ข้อมูลซ้ำ ค่าที่อยู่นอกช่วง และความพร้อมใช้งาน แล้วรายงานเป็นรายการที่ต้องแก้",
+    dg?`<div class="grid g4" style="gap:.7rem">
+        ${stat("ผลการตรวจ",dg.verdict==="ok"?"ปกติ":dg.verdict==="warn"?"มีข้อควรตรวจสอบ":"พบปัญหา",
+          `ตรวจ ${dg.summary.checks} รายการ · ใช้เวลา ${dg.elapsed_ms} มิลลิวินาที`)}
+        ${stat("ต้องแก้ไข",dg.summary.errors,dg.summary.errors?"กระทบผลการรายงาน":"ไม่พบ")}
+        ${stat("ควรตรวจสอบ",dg.summary.warnings,dg.summary.warnings?"ยังใช้งานได้แต่ควรแก้":"ไม่พบ")}
+        ${stat("แถวข้อมูลที่ตรวจ",dg.summary.rows_scanned.toLocaleString(),`เมื่อ ${String(dg.checked_at).slice(0,16).replace("T"," ")}`)}
+      </div>
+      ${dg.findings.length?`<div class="scroll-x" style="margin-top:.9rem"><table class="tight" style="min-width:820px"><thead><tr>
+        <th style="width:110px">ระดับ</th><th style="width:150px">ส่วนที่เกี่ยวข้อง</th><th>สิ่งที่ตรวจพบ</th>
+        <th class="num" style="width:80px">จำนวน</th><th>คำแนะนำ</th></tr></thead><tbody>
+        ${dg.findings.map(f=>`<tr>
+          <td><span class="tag ${(MT_LV[f.level]||MT_LV.info)[0]}">${(MT_LV[f.level]||MT_LV.info)[1]}</span></td>
+          <td style="font-size:.82rem">${esc(f.area)}</td>
+          <td style="font-size:.83rem">${esc(f.message)}</td>
+          <td class="num" style="font-weight:600">${f.count||"—"}</td>
+          <td style="font-size:.8rem;color:var(--muted)">${esc(f.hint||"—")}</td></tr>`).join("")}
+        </tbody></table></div>`
+        :`<div class="alert alert-ok" style="margin-top:.9rem">ไม่พบปัญหาในฐานข้อมูล ทุกการอ้างอิงข้ามตารางถูกต้องและไม่มีข้อมูลซ้ำ</div>`}
+      ${dg.counts?`<div class="scroll-x" style="margin-top:.9rem"><table class="tight"><thead><tr><th>ชีต</th><th class="num">จำนวนแถว</th><th>ชีต</th><th class="num">จำนวนแถว</th></tr></thead><tbody>
+        ${(()=>{const k=Object.keys(dg.counts); let h="";
+          for(let i=0;i<k.length;i+=2) h+=`<tr><td>${esc(k[i])}</td><td class="num">${dg.counts[k[i]]<0?"—":dg.counts[k[i]].toLocaleString()}</td>
+            <td>${k[i+1]?esc(k[i+1]):""}</td><td class="num">${k[i+1]?(dg.counts[k[i+1]]<0?"—":dg.counts[k[i+1]].toLocaleString()):""}</td></tr>`;
+          return h;})()}</tbody></table></div>`:""}`
+      :`<div class="empty">ยังไม่ได้ตรวจสอบ กดปุ่มด้านล่างเพื่อเริ่มตรวจ</div>`,
+    live?`<div class="row"><button class="btn btn-primary btn-sm" data-act="mtdiag">${dg?"ตรวจสอบใหม่":"ตรวจสอบฐานข้อมูล"}</button>
+      <button class="btn btn-ghost btn-sm" data-act="liverepair">ซ่อมข้อมูลอัตโนมัติ</button></div>`:"");
+
+  return `<div class="stack">${onCard}${diagCard}${concurrencyCard()}
+    <div class="notebox">${docStamp("หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ การเปิดโหมดซ่อมบำรุงและการซ่อมข้อมูลถูกบันทึกไว้ในชีต AuditLog ทุกครั้ง")}</div></div>`;
+}
+/** อธิบายและตรวจความพร้อมรองรับผู้ใช้พร้อมกันหลายคน
+    ตัวเลขที่แสดงมาจากโครงสร้างจริงของระบบ ไม่ใช่ค่าที่ตั้งไว้เฉย ๆ */
+function concurrencyCard(){
+  const raterRoles=["Lecturer","MajorAdvisor","Mentor"];
+  const raters=USERS.filter(u=>(u.roles||[]).some(r=>raterRoles.includes(r))&&u.status==="active").length;
+  const stu=students().length;
+  const t=S.mtLoad;
+  return card("การใช้งานพร้อมกันหลายคน",
+    "ผู้ประเมินเปิดดูข้อมูลพร้อมกันได้ไม่จำกัด ส่วนการบันทึกจะเข้าคิวทีละคนเพื่อกันข้อมูลชนกัน",
+    `<div class="grid g4" style="gap:.7rem">
+      ${stat("ผู้ประเมินในระบบ",raters,"อาจารย์นิเทศก์และครูพี่เลี้ยงที่ใช้งานอยู่")}
+      ${stat("นักศึกษาที่ถูกประเมิน",stu,"แต่ละคนมีสี่ช่องทางการประเมิน")}
+      ${stat("การอ่านพร้อมกัน","ไม่จำกัด","การเปิดดูรายงานไม่ต้องเข้าคิว")}
+      ${stat("การบันทึกพร้อมกัน","เข้าคิวทีละคน","กันข้อมูลเขียนทับกันด้วย LockService")}
+    </div>
+    <div class="notebox" style="margin-top:.9rem">
+      <b>กลไกที่ใช้</b><br>
+      • การบันทึกทุกเส้นทางห่อด้วย <b>LockService</b> ผู้บันทึกพร้อมกันจึงเข้าคิวทีละคน ข้อมูลไม่เขียนทับกัน<br>
+      • หากคิวยาว ระบบรอสองรอบ (20 และ 15 วินาที) พร้อมเหลื่อมเวลาแบบสุ่ม ก่อนแจ้งให้กดบันทึกใหม่<br>
+      • ผู้ประเมินแต่ละคนบันทึกคนละช่องทาง (วิชาชีพครู วิชาเอก ครูพี่เลี้ยง ตนเอง) จึงไม่ทับกันแม้ประเมินนักศึกษาคนเดียวกัน<br>
+      • การอ่านไม่ล็อกและมีแคชระดับคำขอ ผู้ใช้จำนวนมากเปิดรายงานพร้อมกันได้โดยไม่กระทบกัน
+    </div>
+    ${t?`<div class="alert ${t.fail?"alert-warn":"alert-ok"}" style="margin-top:.8rem">
+      ผลทดสอบส่งคำขอพร้อมกัน ${t.n} ชุด · สำเร็จ ${t.ok} · ล้มเหลว ${t.fail}
+      · เร็วสุด ${t.min} มิลลิวินาที · ช้าสุด ${t.max} มิลลิวินาที · เฉลี่ย ${t.avg} มิลลิวินาที
+      ${t.fail?"<br>คำขอที่ล้มเหลวเกิดจากคิวเขียนเต็ม ระบบแจ้งให้ผู้ใช้กดบันทึกใหม่ ไม่มีข้อมูลสูญหาย":""}</div>`:""}`,
+    ((typeof liveOn==="function")&&liveOn())
+      ? `<button class="btn btn-ghost btn-sm" data-act="mtload">ทดสอบส่งคำขอพร้อมกัน 8 ชุด</button>`:"");
+}
+
 function reportsPage(){
   const cards=REPORTS.map(r=>`<tr>
     <td>${esc(r.name)}<div class="sub">${esc(r.desc)}</div></td>
@@ -6488,6 +6579,7 @@ function shellView(){
     case "exam": body=examPage(); break;
     case "profile": body=profilePage(); break;
     case "reports": body=reportsPage(); break;
+    case "maintenance": body=maintenancePage(); break;
     default: body=`<div class="empty">ไม่พบหน้านี้</div>`;
   }
   return `<div class="shell">
@@ -8029,6 +8121,81 @@ async function mySync() {
   } finally { liveBusy(-1); render(); }
 }
 
+/*───────── 21.7ก. ซ่อมบำรุงฐานข้อมูล ─────────*/
+/** เส้นทางของหน้านี้เพิ่งเพิ่มเข้ามา เซิร์ฟเวอร์รุ่นก่อนจะตอบว่าไม่พบคำสั่ง
+    เปลี่ยนเป็นข้อความที่บอกวิธีแก้ตรง ๆ แทนที่จะปล่อยข้อความดิบให้ผู้ดูแลงง */
+function maintErr(e) {
+  const noRoute = String(e && e.code) === 'NO_ROUTE' || /ไม่พบคำสั่ง/.test((e && e.message) || '');
+  if (!noRoute) return e || new Error('ไม่สำเร็จ');
+  return {code: 'NO_ROUTE',
+          message: 'เซิร์ฟเวอร์ยังเป็นรุ่นก่อนที่ยังไม่มีคำสั่งนี้ กรุณา deploy Code.gs รุ่นล่าสุดก่อนใช้งานหน้าซ่อมบำรุง'};
+}
+/** เปิดหรือปิดโหมดซ่อมบำรุง ผลมีทันทีกับผู้ใช้ทุกคน เพราะเซิร์ฟเวอร์ตรวจที่ชั้นกระจายคำสั่ง */
+async function setMaintenance(on) {
+  if (!liveOn()) return;
+  const msgEl = document.getElementById('mt_msg');
+  const readEl = document.getElementById('mt_read');
+  const body = {set: on,
+                message: msgEl ? msgEl.value : '',
+                allow_read: readEl ? !!readEl.checked : true};
+  liveBusy(1);
+  toast(on ? '⏳ กำลังเปิดโหมดซ่อมบำรุง…' : '⏳ กำลังเปิดระบบให้ใช้งานตามปกติ…', 'wait', true);
+  try {
+    const r = await API.call('admin.maintenance', body);
+    S.mtState = (r && r.maintenance) || null;
+    if (LIVE.status) LIVE.status.maintenance = S.mtState;
+    LIVE.err = '';
+    LIVE.info = on
+      ? `เปิดโหมดซ่อมบำรุงแล้ว${r && r.sessions_cut ? ` · ตัดเซสชันผู้ใช้ทั่วไป ${r.sessions_cut} รายการ` : ''}`
+      : 'ปิดโหมดซ่อมบำรุงแล้ว ผู้ใช้กลับมาบันทึกข้อมูลได้ตามปกติ';
+    toastSaved(LIVE.info);
+  } catch (e) { liveErr(maintErr(e)); toastFailed(maintErr(e).message || ''); }
+  finally { liveBusy(-1); render(); }
+}
+/** สั่งตรวจสอบความสมบูรณ์ของฐานข้อมูล แล้วเก็บผลไว้แสดงในหน้าซ่อมบำรุง */
+async function runDiagnose() {
+  if (!liveOn()) return;
+  liveBusy(1);
+  toast('⏳ กำลังตรวจสอบความสมบูรณ์ของฐานข้อมูล…', 'wait', true);
+  try {
+    const r = await API.call('admin.diagnose', {});
+    S.mtDiag = r;
+    if (r && r.maintenance) S.mtState = r.maintenance;
+    LIVE.err = '';
+    LIVE.info = r.verdict === 'ok'
+      ? `ตรวจสอบฐานข้อมูลแล้ว ไม่พบปัญหา (${r.summary.rows_scanned.toLocaleString()} แถว)`
+      : `ตรวจสอบฐานข้อมูลแล้ว พบต้องแก้ไข ${r.summary.errors} · ควรตรวจสอบ ${r.summary.warnings}`;
+    toastSaved(LIVE.info);
+  } catch (e) { liveErr(maintErr(e)); toastFailed(maintErr(e).message || ''); }
+  finally { liveBusy(-1); render(); }
+}
+/** ทดสอบว่าเซิร์ฟเวอร์รับคำขอพร้อมกันหลายชุดได้จริงหรือไม่
+    ใช้คำสั่งอ่านอย่างเดียว จึงทดสอบได้โดยไม่กระทบข้อมูลของผู้ใช้ */
+async function runLoadCheck() {
+  if (!liveOn()) return;
+  const N = 8;
+  liveBusy(1);
+  toast(`⏳ กำลังส่งคำขอพร้อมกัน ${N} ชุดเพื่อทดสอบ…`, 'wait', true);
+  const t0 = Date.now();
+  const times = [];
+  let fail = 0;
+  try {
+    await Promise.all(Array.from({length: N}, async () => {
+      const s = Date.now();
+      try { await API.call('auth.me', {}); times.push(Date.now() - s); }
+      catch (e) { fail++; times.push(Date.now() - s); }
+    }));
+    S.mtLoad = {n: N, ok: N - fail, fail: fail,
+                min: Math.min(...times), max: Math.max(...times),
+                avg: Math.round(times.reduce((a, b) => a + b, 0) / times.length),
+                wall: Date.now() - t0};
+    LIVE.err = '';
+    LIVE.info = `ทดสอบส่งคำขอพร้อมกัน ${N} ชุดแล้ว สำเร็จ ${N - fail} ชุด`;
+    toastSaved(LIVE.info);
+  } catch (e) { liveErr(maintErr(e)); toastFailed(maintErr(e).message || ''); }
+  finally { liveBusy(-1); render(); }
+}
+
 /** ซิงก์ผลรายตัวชี้วัดของนักศึกษาทุกคนที่ผู้ใช้มีสิทธิ์เห็น */
 async function liveSyncAll(force) {
   if (!liveOn() || LIVE.sync.running) return;
@@ -8390,7 +8557,22 @@ function liveBadge() {
 
 /* ห่อ view() เดิม เพื่อเติมแถบสถานะโดยไม่แก้โครงหน้าจอ */
 const viewBase = view;
-view = function () { return viewBase() + liveBadge(); };
+/** แถบแจ้งโหมดซ่อมบำรุง ติดไว้บนสุดของทุกหน้าเพื่อให้ผู้ใช้ทราบก่อนจะกดบันทึกแล้วถูกปฏิเสธ
+    ผู้ดูแลระบบเห็นข้อความต่างออกไป เพราะยังบันทึกได้ตามปกติ */
+function maintenanceBanner() {
+  const mt = (LIVE.status && LIVE.status.maintenance) || S.mtState;
+  if (!mt || !mt.on) return '';
+  const admin = S.role === 'Administrator';
+  return `<div style="position:fixed;left:0;right:0;top:0;z-index:210;padding:.5rem 1rem;
+      background:var(--warn-bg);color:var(--warn);border-bottom:2px solid var(--warn);
+      font-size:.84rem;line-height:1.5;text-align:center">
+    🔧 <b>${admin ? 'ท่านเปิดโหมดซ่อมบำรุงไว้' : 'ระบบอยู่ระหว่างการซ่อมบำรุงฐานข้อมูล'}</b>
+    · ${admin
+        ? 'ผู้ใช้อื่น' + (mt.allow_read === false ? 'เข้าใช้งานไม่ได้' : 'บันทึกข้อมูลไม่ได้') +
+          ' ท่านยังทำงานได้ตามปกติ ปิดโหมดได้ที่เมนูซ่อมบำรุงฐานข้อมูล'
+        : esc(mt.message || 'กรุณาลองใหม่อีกครั้งภายหลัง')}</div>`;
+}
+view = function () { return maintenanceBanner() + viewBase() + liveBadge(); };
 
 /* หน้าจอเข้าสู่ระบบในโหมดจริงไม่ควรแนะนำรหัสผ่านสาธิต */
 const loginViewBase = loginView;
@@ -8421,6 +8603,12 @@ document.addEventListener('click', e => {
   if (a === 'livesetup') { e.stopPropagation(); e.preventDefault(); liveSetup(); return; }
   if (a === 'liveseed')  { e.stopPropagation(); e.preventDefault(); liveSeed(); return; }
   if (a === 'liverepair') { e.stopPropagation(); e.preventDefault(); liveRepair(); return; }
+  if (a === 'mton' || a === 'mtoff') {
+    e.stopPropagation(); e.preventDefault();
+    setMaintenance(a === 'mton'); return;
+  }
+  if (a === 'mtdiag') { e.stopPropagation(); e.preventDefault(); runDiagnose(); return; }
+  if (a === 'mtload') { e.stopPropagation(); e.preventDefault(); runLoadCheck(); return; }
 
   /* การเข้าสู่ระบบต้องไม่รอผลตรวจสอบเซิร์ฟเวอร์
      เดิมถ้าผู้ใช้กดเข้าสู่ระบบระหว่างที่ health ยังไม่ตอบ (ใช้เวลาหลายวินาที) LIVE.on ยังเป็นเท็จ
