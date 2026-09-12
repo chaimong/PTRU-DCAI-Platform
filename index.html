@@ -794,6 +794,18 @@ const RESP={}, HIST={}, RESP_L={}, RESP_A={}, RESP_M={}, RESP_S={};
     ข้อมูลนี้มาจากชีต Assessments โดยตรง ไม่ได้สังเคราะห์ขึ้นตอนวาดหน้าจอ */
 const ASSESS_LOG={};
 
+/** คะแนนรายตัวชี้วัดระดับดิบ ยังไม่ถูกเฉลี่ยรวมเป็นช่องทาง
+    หนึ่งรายการ = ผู้ประเมินหนึ่งคน ให้คะแนนหนึ่งตัวชี้วัด ของนักศึกษาหนึ่งคน ในหนึ่งรอบ
+    จำเป็นสำหรับการวิเคราะห์ความสอดคล้องระหว่างผู้ประเมิน เพราะต้องเทียบคนต่อคนบนช่องเดียวกัน
+    RESP_L/RESP_A/RESP_M/RESP_S เก็บเฉพาะค่าเฉลี่ยรายช่องทางของรอบล่าสุด
+    ใช้คำนวณความสอดคล้องรายบุคคลไม่ได้ เพราะรหัสผู้ประเมินถูกกลืนไปในค่าเฉลี่ยแล้ว */
+const ASSESS_RAW={};
+
+/** เมทริกซ์การตอบข้อสอบจริงทั้งคณะ ดึงจากเส้นทาง exam.matrix
+    ใช้ฝึกและตรวจสอบแบบจำลองที่ต้องการลำดับการตอบจริง
+    เป็น null เมื่อยังไม่ได้ดึง และ {..., responses:[]} เมื่อดึงแล้วแต่ยังไม่มีผู้เข้าสอบ */
+let EXAM_MX=null;
+
 /** นิยามฝ่ายผู้ประเมินเพียงที่เดียว ทุกหน้าที่แสดงหรือวิเคราะห์คะแนนอ้างจากรายการนี้
     type ต้องตรงกับ assess_type ที่บันทึกลงชีต Assessments ผ่าน api_assessSubmit */
 const RATERS=[
@@ -1185,7 +1197,8 @@ const S={
   year:4, fwTab:"year", fwSel:FW.competencies[0].id, psyTab:"irt", psyYear:4,
   dxSid:null, dxTab:"irt", dxCdm:false,
   prgSid:null, iqMsg:"", irrTab:"sum", pfPhotoMsg:"", pfPhotoErr:false, xaiTab:"global", xaiModel:"logreg", xaiSid:null, fy:"all", fp:"all", repView:null, repMsg:"", repErr:false, irtModel:"m4pl", irtCmp:false,
-  mtState:null, mtDiag:null, mtLoad:null, edmModel:"logreg", edmCompare:false, edmSid:null, edmBusy:false,
+  mtState:null, mtDiag:null, mtLoad:null, difVar:"program", cdmBusy:false, cdmMsg:"",
+  edmModel:"logreg", edmCompare:false, edmSid:null, edmBusy:false,
   iqComp:null, iqTab:"ctt", iqItem:0,
   examComp:null, examAns:{}, examItems:[], examAttemptId:null, examDone:false, examQ:0, examBusy:false, examDbSaved:false, pfTab:"info", pfMsg:"", pfErr:"", histRound:"all",
   usrTab:"list", usrFilter:{role:"all",program:"all",year:"all",q:""}, usrEdit:null,
@@ -2094,28 +2107,106 @@ function psyPage(){
   return `<div class="stack">${filterBar("ตัวกรองนี้ใช้กับกลุ่มผู้เรียนที่นำมาสอบเทียบพารามิเตอร์")}
     ${yearStrip(y,"setpsyyear",`${list.length} ตัวชี้วัดที่เปิดใช้ในชั้นปีนี้`)}
     <div class="notebox">พารามิเตอร์แยกอิสระตามชั้นปี เนื่องจากตัวชี้วัดของแต่ละชั้นปีเป็นคนละชุดกัน
-      ค่าทั้งหมดเป็นค่าตั้งต้น ยังไม่ได้สอบเทียบกับข้อมูลผู้เรียนจริง ก่อนนำผลไปใช้ตัดสินผู้เรียนต้องสอบเทียบและตรวจความกลมกลืนของโมเดลก่อนเสมอ</div>
+      ${S.psyTab==="deep"
+        ?`แท็บ DeepCDM ฝึกจากการตอบข้อสอบจริงในฐานข้อมูล ส่วนพารามิเตอร์ IRT, Q-matrix และ G-DINA ในแท็บอื่นเป็นค่าตั้งต้นที่ตั้งไว้ ต้องสอบเทียบก่อนนำไปใช้ตัดสิน`
+        :`ค่าทั้งหมดเป็นค่าตั้งต้น ยังไม่ได้สอบเทียบกับข้อมูลผู้เรียนจริง ก่อนนำผลไปใช้ตัดสินผู้เรียนต้องสอบเทียบและตรวจความกลมกลืนของโมเดลก่อนเสมอ`}</div>
     ${S.msg?`<div class="alert alert-info" style="margin-top:0">${esc(S.msg)}</div>`:""}
     <div class="tabs">${tabs}</div>${body}</div>`;
 }
-function deepPanel(y){
-  const K=activeComps(FW,y).length, J=allInds(FW,y).length;
-  const n=students().filter(s=>s.year===y).length;
-  return `<div class="stack">
-    ${card("Deep Cognitive Diagnosis Model","สถานะ: ยังไม่เชื่อมต่อบริการโมเดล",
-      `<p style="font-size:.88rem">DeepCDM ต้องผ่านการฝึกด้วยข้อมูลการตอบสนองของผู้เรียนจำนวนมากและประมวลผลบนเซิร์ฟเวอร์
-       ต้นแบบนี้ทำงานในเบราว์เซอร์จึงไม่สามารถฝึกหรืออนุมานผลได้ ระบบจะแสดงผลก็ต่อเมื่อเชื่อมต่อบริการโมเดลจริงแล้ว
-       หากแสดงตัวเลขในขั้นนี้ ตัวเลขนั้นจะไม่มีความหมายทางการวัดผล</p>
-       <div class="grid g3" style="margin-top:1rem">${stat("คุณลักษณะ (K)",K,`สมรรถนะที่เปิดใช้ในชั้นปีที่ ${y}`)}
-       ${stat("ตัวชี้วัด (J)",J,"ขนาดเวกเตอร์อินพุต")}${stat("ผู้เรียนที่มีข้อมูล",n,"ต่ำกว่าขนาดที่ฝึกโมเดลได้มาก")}</div>`)}
-    ${card("ข้อกำหนดการเชื่อมต่อ","สัญญาบริการที่ฝ่ายพัฒนาต้องจัดทำ",
-      `<table class="tight"><tbody>
-        <tr><td style="width:190px;color:var(--muted)">ปลายทาง</td><td>POST /api/v1/diagnostics/deepcdm</td></tr>
-        <tr><td style="color:var(--muted)">ข้อมูลส่งเข้า</td><td>student_id, program, year, term_id, framework_version, q_matrix_version, responses[]</td></tr>
-        <tr><td style="color:var(--muted)">ข้อมูลส่งกลับ</td><td>mastery[K] (0–1), profile[K] (0/1), confidence, model_version, trained_at</td></tr>
-        <tr><td style="color:var(--muted)">เงื่อนไขก่อนใช้งาน</td><td>ตรวจความกลมกลืนของโมเดลและเปรียบเทียบผลกับ G-DINA บนชุดข้อมูลทดสอบ</td></tr>
-        <tr><td style="color:var(--muted)">ธรรมาภิบาล</td><td>บันทึกเวอร์ชันโมเดลทุกครั้ง ผลวินิจฉัยใช้ประกอบดุลยพินิจ ไม่ใช้ตัดสินผู้เรียนโดยลำพัง</td></tr>
-      </tbody></table>`,"",false)}</div>`;
+function deepPanel(y,focusSid){
+  const comps=activeComps(FW,y), K=comps.length;
+  const ready=cdmData(y);
+  const F=(CDM_FIT&&CDM_FIT.year===y)?CDM_FIT:null;
+  const mx=EXAM_MX&&EXAM_MX.summary;
+
+  const status=card("Deep Cognitive Diagnosis Model",
+    F?`ฝึกแล้วด้วยข้อมูลจริง เมื่อ ${String(F.at).slice(0,16).replace("T"," ")}`
+     :(ready.ok?"พร้อมฝึกด้วยข้อมูลจริง":"ยังฝึกไม่ได้"),
+    `<div class="alert ${F?"alert-ok":ready.ok?"alert-info":"alert-warn"}" style="margin-top:0">
+      ${F?`<b>✅ โมเดลผ่านการฝึกด้วยการตอบข้อสอบจริงแล้ว</b><br>
+           คำตอบรายข้อ ${F.nResp.toLocaleString()} รายการ · ผู้เรียน ${F.N} คน · ข้อสอบ ${F.J} ข้อ · สมรรถนะ ${F.K} ด้าน`
+        :ready.ok?`<b>ข้อมูลจริงพร้อมแล้ว กดปุ่มด้านล่างเพื่อฝึกโมเดล</b><br>
+           คำตอบรายข้อ ${ready.rows.length.toLocaleString()} รายการ · ผู้เรียน ${ready.N} คน · ข้อสอบ ${ready.J} ข้อ`
+        :`<b>ยังฝึกไม่ได้</b> ${esc(ready.reason)}
+           <br>DeepCDM ต้องใช้การตอบข้อสอบรายข้อจริง ไม่ใช่คะแนนจากแบบประเมิน
+           ระบบจะเปิดให้ฝึกอัตโนมัติเมื่อมีผู้เข้าสอบครบตามจำนวน
+           ${LIVE.mxErr?`<br><span style="color:var(--warn)">${esc(LIVE.mxErr)}</span>`:""}`}
+     </div>
+     <div class="grid g4" style="margin-top:.9rem">
+       ${stat("คุณลักษณะ (K)",K,`สมรรถนะที่เปิดใช้ในชั้นปีที่ ${y}`)}
+       ${stat("ข้อสอบที่ใช้ได้ (J)",ready.ok?ready.J:0,"ข้อในสมรรถนะที่เปิดใช้")}
+       ${stat("ผู้สอบจริง",ready.ok?ready.N:(mx?mx.tested:0),"ผู้เรียนที่มีคำตอบในฐานข้อมูล")}
+       ${stat("คำตอบรายข้อ",(mx?mx.answers:0).toLocaleString(),"ทั้งคณะ จากชีต ExamAnswers")}
+     </div>
+     ${S.cdmMsg?`<div class="alert alert-info" style="margin-bottom:0">${esc(S.cdmMsg)}</div>`:""}`,
+    liveOn()?`<div class="row">
+      <button class="btn btn-primary btn-sm" ${ready.ok?"":"disabled style=opacity:.45"} data-act="cdmtrain">${F?"ฝึกใหม่":"ฝึก DeepCDM ด้วยข้อมูลจริง"}</button>
+      <button class="btn btn-ghost btn-sm" data-act="mxreload">ดึงข้อมูลการสอบจริงใหม่</button>
+      ${F?`<button class="btn btn-ghost btn-sm" data-act="cdmclear">ล้างผลการฝึก</button>`:""}</div>`:"");
+
+  const spec=card("โครงสร้างและข้อกำหนด","ระบบฝึกและอนุมานในเบราว์เซอร์ด้วยเครื่องมือหาอนุพันธ์อัตโนมัติของระบบเอง",
+    `<table class="tight"><tbody>
+      <tr><td style="width:210px;color:var(--muted)">โครงสร้าง</td><td>Neural Cognitive Diagnosis · hs = σ(ผู้เรียน), hd = σ(ความยากราย K), disc = σ(ความจำแนก) · x = q ⊙ (hs − hd) × disc → MLP → σ</td></tr>
+      <tr><td style="color:var(--muted)">Q-matrix</td><td>มาจากสมรรถนะที่ข้อสอบแต่ละข้อสังกัดจริงในคลังข้อสอบ (between-item multidimensionality) ตรงกับโมเดล MIRT ที่ระบบใช้</td></tr>
+      <tr><td style="color:var(--muted)">การรับประกันการตีความ</td><td>น้ำหนักของ MLP ถูกบังคับให้ไม่ติดลบทุกก้าว ความรอบรู้ที่สูงขึ้นจึงทำให้โอกาสตอบถูกสูงขึ้นเสมอ</td></tr>
+      <tr><td style="color:var(--muted)">ข้อมูลที่ใช้</td><td>ชีต ExamAttempts และ ExamAnswers ผ่านคำสั่ง exam.matrix · ฝึกแยกอิสระรายชั้นปี</td></tr>
+      <tr><td style="color:var(--muted)">การประเมินผล</td><td>กันคำตอบไว้ 20% เป็นชุดทดสอบ (แบ่งตามคำตอบ ไม่ใช่ตามผู้เรียน เพราะเวกเตอร์ความรอบรู้เป็นของผู้เรียนรายคน)</td></tr>
+      <tr><td style="color:var(--muted)">ข้อกำหนดขั้นต่ำ</td><td>ผู้สอบ ${CDM_MIN_STUDENT} คน และคำตอบรายข้อ ${CDM_MIN_RESP} รายการ ต่อหนึ่งชั้นปี</td></tr>
+      <tr><td style="color:var(--muted)">ธรรมาภิบาล</td><td>ผลวินิจฉัยใช้ประกอบดุลยพินิจของอาจารย์ ไม่ใช้ตัดสินผู้เรียนโดยลำพัง และต้องเทียบกับผล G-DINA ก่อนนำไปใช้</td></tr>
+    </tbody></table>`,"",false);
+
+  if(!F) return `<div class="stack">${status}${spec}</div>`;
+
+  const k=F.metrics;
+  const mrows=F.mastery.slice().sort((a,b)=>mean(a.v)-mean(b.v)).slice(0,40).map(o=>`<tr>
+    <td style="font-size:.82rem">${esc(o.name)}<div class="sub">${esc(o.program||"—")} · ${o.n} คำตอบ</div></td>
+    ${o.v.map(v=>`<td class="num"><span class="tag ${v>=0.7?"tag-ok":v>=0.4?"tag-warn":"tag-risk"}">${(v*100).toFixed(0)}</span></td>`).join("")}
+    <td class="num" style="font-weight:600">${(mean(o.v)*100).toFixed(0)}%</td></tr>`).join("");
+
+  const compAvg=F.comps.map((c,k2)=>({name:c.code+" · "+c.th,
+    v:mean(F.mastery.map(o=>o.v[k2]))}));
+
+  /* หน้ารายงานวินิจฉัยรายบุคคลเปิดแท็บนี้เพื่อดูผลของผู้เรียนคนหนึ่ง
+     จึงยกผลของคนนั้นขึ้นมาแสดงก่อน แทนที่จะให้ไปค้นในตารางรวม */
+  const me=focusSid?F.mastery.find(o=>String(o.sid)===String(focusSid)):null;
+  const focusCard=!focusSid?"":(me
+    ? card("ผลวินิจฉัยของผู้เรียนรายนี้",`ประมาณจากคำตอบจริง ${me.n} รายการ · ยิ่งค่าต่ำยิ่งควรได้รับการช่วยเหลือก่อน`,
+        hbars(me.v.map((v,k2)=>({name:F.comps[k2].code+" · "+F.comps[k2].th,v,
+          color:v>=0.7?"var(--ok)":v>=0.4?"var(--warn)":"var(--c2)"})),1)
+        +`<div class="sub" style="margin-top:.6rem">ความรอบรู้เฉลี่ยทุกด้าน ${(mean(me.v)*100).toFixed(0)}%
+          · เทียบกับค่าเฉลี่ยของชั้นปี ${(mean(F.mastery.map(o=>mean(o.v)))*100).toFixed(0)}%</div>`)
+    : card("ผลวินิจฉัยของผู้เรียนรายนี้","",
+        `<div class="empty">ผู้เรียนรายนี้ยังไม่มีการตอบข้อสอบในชั้นปีนี้ จึงยังไม่มีเวกเตอร์ความรอบรู้
+          ผลวินิจฉัยจาก G-DINA ในแท็บก่อนหน้ายังใช้ได้ตามปกติ</div>`));
+
+  return `<div class="stack">${status}${focusCard}
+    ${card("ผลการฝึก","วัดบนคำตอบที่กันไว้ ซึ่งโมเดลไม่เคยเห็นระหว่างฝึก",
+      `<div class="grid g5">
+        ${stat("AUC",k.auc.toFixed(3),"ความสามารถแยกตอบถูกกับตอบผิด")}
+        ${stat("Accuracy",(k.acc*100).toFixed(1)+"%","ที่เกณฑ์ตัดสิน 50%")}
+        ${stat("Log Loss",k.logloss.toFixed(3),"ยิ่งต่ำยิ่งดี")}
+        ${stat("พารามิเตอร์",F.nParam.toLocaleString(),"จำนวนค่าที่เรียนรู้")}
+        ${stat("เวลาที่ใช้ฝึก",(F.ms/1000).toFixed(1)+" วิ",`${F.epochs} epochs ในเบราว์เซอร์`)}
+      </div>
+      <div class="sub" style="margin-top:.7rem">ฝึกด้วย ${F.nTrain.toLocaleString()} คำตอบ ทดสอบด้วย ${F.nTest.toLocaleString()} คำตอบ</div>`)}
+    ${card("ความรอบรู้เฉลี่ยรายสมรรถนะ","ค่าเฉลี่ยของผู้เรียนทั้งชั้นปี ยิ่งสูงยิ่งรอบรู้",
+      hbars(compAvg.map(o=>({name:o.name,v:o.v,
+        color:o.v>=0.7?"var(--ok)":o.v>=0.4?"var(--warn)":"var(--c2)"})),1))}
+    ${card("ผลวินิจฉัยรายบุคคล",`ค่าความรอบรู้ 0 ถึง 100 รายสมรรถนะ · แสดง ${Math.min(40,F.mastery.length)} คนที่ต้องช่วยเหลือก่อน จากทั้งหมด ${F.mastery.length} คน`,
+      `<div class="scroll-x"><table class="tight" style="min-width:${260+F.K*54}px"><thead><tr>
+        <th>ผู้เรียน</th>${F.comps.map(c=>`<th class="num" title="${esc(c.th)}">${c.code}</th>`).join("")}
+        <th class="num">เฉลี่ย</th></tr></thead><tbody>${mrows}</tbody></table></div>`,"",false)}
+    ${card("เส้นทางการเรียนรู้ระหว่างฝึก","ค่าบนชุดทดสอบทุกช่วง ใช้ตรวจว่าโมเดลลู่เข้าและไม่โอเวอร์ฟิต",
+      `<table class="tight"><thead><tr><th class="num">Epoch</th><th class="num">AUC</th>
+        <th class="num">Accuracy</th><th class="num">Log Loss</th></tr></thead><tbody>
+        ${F.curve.map(c=>`<tr><td class="num">${c.ep}</td><td class="num">${c.auc.toFixed(3)}</td>
+          <td class="num">${(c.acc*100).toFixed(1)}%</td><td class="num">${c.logloss.toFixed(3)}</td></tr>`).join("")}
+      </tbody></table>`,"",false)}
+    ${spec}
+    <div class="notebox">ผลนี้มาจากการตอบข้อสอบจริงของผู้เรียนในชั้นปีที่ ${y} เท่านั้น
+      ค่าความรอบรู้เป็นค่าประมาณที่ขึ้นกับจำนวนข้อที่ผู้เรียนแต่ละคนทำ ผู้ที่ตอบน้อยข้อจะมีความไม่แน่นอนสูงกว่า
+      ก่อนนำไปใช้ตัดสินต้องเทียบกับผล G-DINA และตรวจความกลมกลืนของโมเดลตามที่ระบุในตารางข้อกำหนด</div>
+  </div>`;
 }
 
 /* ---------- 16. รายงานวินิจฉัยรายบุคคล ---------- */
@@ -2154,7 +2245,7 @@ function diagnosticPage(){
   else if(S.dxTab==="mirt") body=mirtPanel(A);
   else if(S.dxTab==="gdina") body=gdinaPanel(A);
   else if(S.dxTab==="edm") body=edmPanel(A,st,lb);
-  else body=deepPanel(A.year);
+  else body=deepPanel(A.year,S.dxSid);
   /* นักศึกษาเห็นเฉพาะของตนเอง จึงไม่ต้องมีตัวกรองชั้นปีและสาขา */
   const bar=S.role==="Student"?"":filterBar();
   return `<div class="stack">${bar}
@@ -3994,6 +4085,30 @@ function mulT(A,B){
   for(let i=0;i<A.d.length;i++) out.d[i]=A.d[i]*B.d[i];
   return push(out,()=>{ for(let i=0;i<A.d.length;i++){ A.g[i]+=out.g[i]*B.d[i]; B.g[i]+=out.g[i]*A.d[i]; } });
 }
+function subT(A,B){
+  const out=tnode(A.r,A.c);
+  for(let i=0;i<A.d.length;i++) out.d[i]=A.d[i]-B.d[i];
+  return push(out,()=>{ for(let i=0;i<A.d.length;i++){ A.g[i]+=out.g[i]; B.g[i]-=out.g[i]; } });
+}
+/** ซิกมอยด์ทีละสมาชิก ใช้บีบค่าความรอบรู้และความยากให้อยู่ในช่วง 0 ถึง 1
+    จำเป็นกับ DeepCDM เพราะค่าที่รายงานต้องตีความเป็นสัดส่วนความรอบรู้ได้โดยตรง */
+function sigT(A){
+  const out=tnode(A.r,A.c);
+  for(let i=0;i<A.d.length;i++) out.d[i]=1/(1+Math.exp(-Math.max(-30,Math.min(30,A.d[i]))));
+  return push(out,()=>{ for(let i=0;i<A.d.length;i++) A.g[i]+=out.g[i]*out.d[i]*(1-out.d[i]); });
+}
+/** ขยายเวกเตอร์คอลัมน์ (n×1) ให้เป็น n×c เพื่อคูณกับเมทริกซ์ทีละสมาชิก */
+function bcastCols(v,c){
+  const out=tnode(v.r,c);
+  for(let i=0;i<v.r;i++) for(let j=0;j<c;j++) out.d[i*c+j]=v.d[i];
+  return push(out,()=>{ for(let i=0;i<v.r;i++){ let s=0; for(let j=0;j<c;j++) s+=out.g[i*c+j]; v.g[i]+=s; } });
+}
+/** เมทริกซ์ค่าคงที่ ไม่ถูกปรับระหว่างฝึก ใช้ใส่ Q-matrix จริงเข้าไปในกราฟ */
+function constT(rows,c){
+  const n=tnode(rows.length,c);
+  rows.forEach((r,i)=>{ for(let j=0;j<c;j++) n.d[i*c+j]=r[j]; });
+  return n;
+}
 function rowSum(A){
   const out=tnode(A.r,1);
   for(let i=0;i<A.r;i++){ let s=0; for(let j=0;j<A.c;j++) s+=A.d[i*A.c+j]; out.d[i]=s; }
@@ -4145,22 +4260,61 @@ let PILOT=null;
     ข้อที่ผู้สอบคนนั้นไม่ได้ทำจะถูกทำเครื่องหมายไว้ใน mask เพื่อไม่ให้นับเป็นตอบผิด */
 function realPilot(){
   const idx=new Map(BANK.map((it,j)=>[String(it.id),j]));
-  const rows=[], masks=[];
+  const rows=[], masks=[], sids=[];
   const seen={};
-  EXAM_RESULTS.forEach(r=>{
-    const items=Array.isArray(r.itemResults)?r.itemResults:[];
-    if(!items.length) return;
-    const key=r.sid+"|"+r.comp;
+  /* ใช้เมทริกซ์ทั้งคณะจาก exam.matrix ก่อน เพราะครอบคลุมผู้สอบทุกคน
+     ถ้ายังไม่ได้ดึง (หรือสิทธิ์ไม่ถึง) จึงถอยไปใช้ผลการสอบที่โหลดไว้ในหน้าเว็บ
+     ซึ่งมีเฉพาะของผู้ใช้ที่เข้าสู่ระบบอยู่ จึงไม่พอสำหรับการวิเคราะห์ทั้งคณะ */
+  const push=(sid,key,pairs)=>{
     if(seen[key]) return; seen[key]=1;          // ใช้ครั้งล่าสุดของแต่ละคนต่อสมรรถนะ
     const row=new Uint8Array(BANK.length), mask=new Uint8Array(BANK.length);
     let hit=0;
-    items.forEach(x=>{
-      const j=idx.get(String(x.item_id)); if(j===undefined) return;
-      row[j]=x.is_correct?1:0; mask[j]=1; hit++;
+    pairs.forEach(([iid,ok])=>{
+      const j=idx.get(String(iid)); if(j===undefined) return;
+      row[j]=ok?1:0; mask[j]=1; hit++;
     });
-    if(hit){ rows.push(row); masks.push(mask); }
-  });
-  return {resp:rows, mask:masks, real:true, n:rows.length};
+    if(hit){ rows.push(row); masks.push(mask); sids.push(sid); }
+  };
+  if(EXAM_MX&&Array.isArray(EXAM_MX.responses)&&EXAM_MX.responses.length){
+    /* เรียงจากใหม่ไปเก่า เพื่อให้ครั้งล่าสุดของแต่ละคนถูกเก็บก่อน */
+    EXAM_MX.responses.slice().reverse().forEach(r=>{
+      push(String(r.student_id), r.student_id+"|"+r.comp_id,
+        r.items.map((iid,k)=>[iid, r.correct[k]]));
+    });
+  } else {
+    EXAM_RESULTS.forEach(r=>{
+      const items=Array.isArray(r.itemResults)?r.itemResults:[];
+      if(!items.length) return;
+      push(String(r.sid), r.sid+"|"+r.comp, items.map(x=>[x.item_id, x.is_correct]));
+    });
+  }
+  return {resp:rows, mask:masks, sid:sids, real:true, n:rows.length,
+          src:(EXAM_MX&&EXAM_MX.responses&&EXAM_MX.responses.length)?"matrix":"self"};
+}
+
+/** ดึงเมทริกซ์การตอบข้อสอบจริงทั้งคณะ ใช้เป็นข้อมูลตั้งต้นของแบบจำลองที่ต้องการการตอบรายข้อ
+    เรียกครั้งเดียวแล้วเก็บไว้ ผู้ใช้กดปุ่ม "ดึงข้อมูลจริงใหม่" เพื่อบังคับดึงซ้ำได้ */
+async function loadExamMatrix(force){
+  if(!liveOn()) return null;
+  if(EXAM_MX&&!force) return EXAM_MX;
+  if(LIVE.mxBusy) return EXAM_MX;
+  LIVE.mxBusy=true; liveBusy(1);
+  try{
+    const d=await API.call('exam.matrix',{});
+    if(d&&Array.isArray(d.responses)){
+      EXAM_MX=d;
+      /* ข้อมูลตั้งต้นของทุกแบบจำลองเปลี่ยนไป ต้องล้างผลที่คำนวณค้างไว้ทั้งหมด */
+      PILOT=null; PILOT_SIM=null; DEEP={}; DEEP_D=null; CDM_FIT=null; EDM_CACHE=null;
+      if(typeof bankChanged==="function") bankChanged();
+    }
+    return EXAM_MX;
+  }catch(e){
+    const noRoute=String(e&&e.code)==='NO_ROUTE'||/ไม่พบคำสั่ง/.test((e&&e.message)||'');
+    LIVE.mxErr=noRoute
+      ?'เซิร์ฟเวอร์ยังเป็นรุ่นก่อนที่ยังไม่มีคำสั่ง exam.matrix กรุณา deploy Code.gs รุ่นล่าสุดเพื่อใช้ข้อมูลการสอบจริง'
+      :((e&&e.message)||'ดึงเมทริกซ์การตอบข้อสอบไม่สำเร็จ');
+    return null;
+  }finally{ LIVE.mxBusy=false; liveBusy(-1); }
 }
 /** จำนวนผู้สอบจริงขั้นต่ำที่ยอมให้ใช้วิเคราะห์คุณภาพข้อสอบ
     ต่ำกว่านี้ค่าประมาณจะแกว่งจนสรุปไม่ได้ ระบบจึงถอยไปใช้ข้อมูลจำลองพร้อมระบุกำกับไว้ */
@@ -4192,6 +4346,24 @@ function pilotRows(cols){
   if(!P.mask) return P.resp;
   return P.resp.filter((r,i)=>cols.every(j=>P.mask[i][j]));
 }
+/** เหมือน pilotRows แต่คืนลำดับแถวเดิมมาด้วย ใช้เมื่อต้องโยงแถวกลับไปหาผู้สอบ
+    การตรวจ DIF ต้องรู้ว่าแถวไหนเป็นของใคร จึงจะแบ่งกลุ่มด้วยคุณลักษณะจริงของผู้เรียนได้ */
+function pilotRowsIdx(cols){
+  const P=pilot();
+  const idx=[];
+  P.resp.forEach((r,i)=>{ if(!P.mask||cols.every(j=>P.mask[i][j])) idx.push(i); });
+  return {P,idx,rows:idx.map(i=>P.resp[i]),
+          sid:(P.sid||[]).length?idx.map(i=>P.sid[i]):null};
+}
+
+/* ตัวแปรจัดกลุ่มที่ใช้ตรวจความลำเอียงรายข้อได้จากข้อมูลที่ระบบมีจริง
+   ระบบไม่เก็บเพศหรือสถานะทางเศรษฐกิจ จึงยังตรวจมิติเหล่านั้นไม่ได้ และต้องแจ้งไว้ให้ชัด */
+const DIF_VARS=[
+  {id:"program", label:"สาขาวิชา",  of:u=>u&&u.program?String(u.program):""},
+  {id:"year",    label:"ชั้นปี",     of:u=>u&&u.year?"ปี "+u.year:""},
+  {id:"school",  label:"สถานศึกษาที่ออกฝึก", of:u=>u&&u.school?String(u.school):""},
+  {id:"random",  label:"สุ่ม (ตรวจผลบวกลวง)", of:null},
+];
 
 /* ---------- CTT: ทฤษฎีการทดสอบแบบดั้งเดิม ---------- */
 function cttAnalyze(cid){
@@ -4380,12 +4552,58 @@ function mirtItemStats(aVec,bScalar){
    ============================================================ */
 const DIM=12, SEQLEN=30;
 
-/** สร้างลำดับการตอบ: ผู้สอบหนึ่งคนต่อหนึ่งสมรรถนะ = ลำดับ 30 ข้อ */
-/* แบบจำลองลำดับการเรียนรู้ต้องการลำดับการตอบที่ยาวและครบทุกข้อ
-   ผลการสอบจริงยังสั้นเกินไปและมีข้อที่ผู้สอบไม่ได้ทำ จึงใช้ชุดจำลองเฉพาะส่วนนี้
-   ถ้าใช้เมทริกซ์จริงที่มีช่องว่าง ข้อที่ไม่ได้ทำจะถูกนับเป็นตอบผิดและทำให้ผลเพี้ยน */
-let PILOT_SIM=null;
+/** สร้างลำดับการตอบ: ผู้สอบหนึ่งคนต่อหนึ่งสมรรถนะ = ลำดับ 30 ข้อ
+    ใช้การสอบจริงจาก exam.matrix ก่อนเสมอ เมื่อมีลำดับที่ยาวพอและมีผู้สอบมากพอ
+    แบบจำลองกลุ่มนี้ต้องการลำดับที่ครบทุกข้อ จึงคัดเฉพาะการสอบที่ทำครบตามความยาวที่กำหนด
+    ถ้าปล่อยให้มีช่องว่าง ข้อที่ไม่ได้ทำจะถูกนับเป็นตอบผิดและทำให้ผลเพี้ยน
+    เมื่อข้อมูลจริงยังไม่พอจึงถอยไปใช้ชุดจำลอง พร้อมระบุที่มาไว้บนหน้าจอทุกแท็บ */
+let PILOT_SIM=null, SEQ_SRC={mode:"sim",n:0,minLen:0};
+/* ขั้นต่ำที่ยอมให้ฝึกด้วยข้อมูลจริง ต่ำกว่านี้ค่าที่วัดได้จะแกว่งจนไม่มีความหมาย */
+const SEQ_REAL_MIN_SEQ=60, SEQ_REAL_MIN_LEN=8;
+
+/** ลำดับการตอบจริงจากเมทริกซ์ทั้งคณะ หนึ่งลำดับ = การสอบหนึ่งครั้งของผู้เรียนหนึ่งคน */
+function realSeqs(){
+  if(!EXAM_MX||!Array.isArray(EXAM_MX.responses)||!EXAM_MX.responses.length) return null;
+  const idxOf=new Map(BANK.map((it,j)=>[String(it.id),j]));
+  const ci={}; FW.competencies.forEach((c,k)=>ci[c.id]=k);
+  const byStu={}, seqs=[];
+  EXAM_MX.responses.forEach(r=>{
+    const its=[], ys=[];
+    r.items.forEach((iid,k)=>{
+      const j=idxOf.get(String(iid));
+      if(j===undefined) return;                 // ข้อที่ถูกลบออกจากคลังแล้ว
+      its.push(j); ys.push(r.correct[k]?1:0);
+    });
+    if(its.length<SEQ_REAL_MIN_LEN) return;
+    const sid=String(r.student_id);
+    if(byStu[sid]===undefined) byStu[sid]=Object.keys(byStu).length;
+    seqs.push({e:byStu[sid], sid, ci:ci[r.comp_id]!==undefined?ci[r.comp_id]:0,
+      items:its, y:ys, at:r.at});
+  });
+  if(seqs.length<SEQ_REAL_MIN_SEQ) return {seqs,N:Object.keys(byStu).length,enough:false};
+  return {seqs,N:Object.keys(byStu).length,enough:true,
+          minLen:Math.min(...seqs.map(s=>s.items.length))};
+}
+
 function seqData(limitTrain,limitTest){
+  const real=realSeqs();
+  if(real&&real.enough){
+    /* ตัดทุกลำดับให้ยาวเท่ากันที่ความยาวสั้นที่สุดที่พบ แต่ไม่เกิน SEQLEN
+       เพราะโครงข่ายในระบบนี้ประมวลผลเป็นก้อนที่มีความยาวคงที่ */
+    const L=Math.min(SEQLEN,Math.max(SEQ_REAL_MIN_LEN,real.minLen));
+    const all=real.seqs.map(s=>({e:s.e,ci:s.ci,sid:s.sid,
+      items:s.items.slice(0,L),y:s.y.slice(0,L)}));
+    const rng=lcg(555);
+    for(let i=all.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=all[i]; all[i]=all[j]; all[j]=t; }
+    /* แบ่งตามผู้สอบ ไม่ใช่ตามลำดับ ผู้สอบในชุดทดสอบจึงไม่ปรากฏในชุดฝึกเลย */
+    const cutE=Math.max(1,Math.floor(real.N*0.8));
+    const tr=all.filter(s=>s.e<cutE).slice(0,limitTrain||900);
+    const te=all.filter(s=>s.e>=cutE).slice(0,limitTest||250);
+    if(tr.length>=20&&te.length>=5){
+      SEQ_SRC={mode:"real",n:all.length,minLen:L,students:real.N,len:L};
+      return {tr,te,V:BANK.length,N:real.N,len:L,real:true};
+    }
+  }
   const P=PILOT_SIM||(PILOT_SIM=buildPilot()), all=[];
   const idxOf=new Map(BANK.map((it,j)=>[it.id,j]));
   P.resp.forEach((row,e)=>{
@@ -4399,7 +4617,10 @@ function seqData(limitTrain,limitTest){
   const cutE=Math.floor(P.resp.length*0.8);
   const tr=all.filter(s=>s.e<cutE).slice(0,limitTrain||900);
   const te=all.filter(s=>s.e>=cutE).slice(0,limitTest||250);
-  return {tr,te,V:BANK.length,N:P.resp.length};
+  SEQ_SRC={mode:"sim",n:all.length,minLen:SEQLEN,
+    students:P.resp.length,len:SEQLEN,
+    have:real?real.seqs.length:0,need:SEQ_REAL_MIN_SEQ};
+  return {tr,te,V:BANK.length,N:P.resp.length,len:SEQLEN,real:false};
 }
 function aucOf(y,p){
   const o=p.map((v,i)=>({v,t:y[i]})).sort((a,b)=>a.v-b.v);
@@ -4415,6 +4636,8 @@ function evalScores(y,p){
 
 /* ---------- 1) Deep Knowledge Tracing: โครงข่ายเรียกซ้ำ ---------- */
 function trainDKT(D,epochs,onEpoch){
+  /* ความยาวลำดับมาจากข้อมูลจริง ไม่ใช่ค่าคงที่ เพราะการสอบจริงมีจำนวนข้อไม่เท่ากับชุดจำลอง */
+  const SL=D.len||SEQLEN;
   const rng=lcg(4242), V=D.V, d=DIM, B=48;
   const InE=tparam(2*V,d,0.12,rng), ItE=tparam(V,d,0.12,rng), Bi=tparam(V,1,0.02,rng);
   const Wx=tparam(d,d,0.2,rng), Wh=tparam(d,d,0.2,rng), bh=tparam(1,d,0.02,rng);
@@ -4425,7 +4648,7 @@ function trainDKT(D,epochs,onEpoch){
     const n=batch.length;
     let h=tnode(n,d);
     const yAll=[], pAll=[]; let loss=null;
-    for(let t=0;t<SEQLEN-1;t++){
+    for(let t=0;t<SL-1;t++){
       const xIdx=batch.map(s=>s.items[t]*2+s.y[t]);
       const x=lookup(InE,xIdx);
       h=tanhT(addBias(addT(mm(x,Wx),mm(h,Wh)),bh));
@@ -4436,7 +4659,7 @@ function trainDKT(D,epochs,onEpoch){
       tgt.forEach((v,i)=>{ yAll.push(v); pAll.push(l.probs[i]); });
       loss=loss?addT(loss,l):l;
     }
-    if(train){ zeroGrad(ps); backward(scaleT(loss,1/(SEQLEN-1))); adamStep(ps,0.02,++step); }
+    if(train){ zeroGrad(ps); backward(scaleT(loss,1/(SL-1))); adamStep(ps,0.02,++step); }
     return {y:yAll,p:pAll,byPos:batch.length?null:null};
   };
   for(let ep=0;ep<epochs;ep++){
@@ -4446,7 +4669,7 @@ function trainDKT(D,epochs,onEpoch){
   const r=runBatch(D.te,false);
   /* เส้นโค้งการเรียนรู้: ค่าเฉลี่ยความน่าจะเป็นที่ทำนายและผลจริง แยกตามลำดับข้อ */
   const nT=D.te.length, curve=[];
-  for(let t=0;t<SEQLEN-1;t++){
+  for(let t=0;t<SL-1;t++){
     const idx=[]; for(let i=0;i<nT;i++) idx.push(t*nT+i);
     curve.push({t:t+2,pred:mean(idx.map(k=>r.p[k])),act:mean(idx.map(k=>r.y[k]))});
   }
@@ -4455,18 +4678,18 @@ function trainDKT(D,epochs,onEpoch){
 
 /* ---------- 2) Transformer: self-attention หนึ่งชั้น หนึ่งหัว ---------- */
 function makeTransformer(D,extraDim,rng){
-  const V=D.V, d=DIM, dh=d+extraDim;
-  const InE=tparam(2*V,d,0.12,rng), Pos=tparam(SEQLEN,d,0.05,rng);
+  const V=D.V, d=DIM, dh=d+extraDim, SL=D.len||SEQLEN;
+  const InE=tparam(2*V,d,0.12,rng), Pos=tparam(SL,d,0.05,rng);
   const Wq=tparam(dh,dh,0.2,rng), Wk=tparam(dh,dh,0.2,rng), Wv=tparam(dh,dh,0.2,rng);
   const W1=tparam(dh,dh*2,0.2,rng), b1=tparam(1,dh*2,0.02,rng);
   const W2=tparam(dh*2,d,0.2,rng), b2=tparam(1,d,0.02,rng);
   const ItE=tparam(V,d,0.12,rng), Bi=tparam(V,1,0.02,rng);
   const Wt=extraDim?tparam(d,extraDim,0.2,rng):null;
-  return {InE,Pos,Wq,Wk,Wv,W1,b1,W2,b2,ItE,Bi,Wt,dh,
+  return {InE,Pos,Wq,Wk,Wv,W1,b1,W2,b2,ItE,Bi,Wt,dh,SL,
     ps:[InE,Pos,Wq,Wk,Wv,W1,b1,W2,b2,ItE,Bi].concat(Wt?[Wt]:[])};
 }
 function trFwd(M,s,useTheta){
-  const L=SEQLEN-1;
+  const L=M.SL-1;
   const xIdx=s.items.slice(0,L).map((it,t)=>it*2+s.y[t]);
   let x=addT(lookup(M.InE,xIdx),sliceRows(M.Pos,0,L));
   if(useTheta){
@@ -4502,7 +4725,7 @@ function trainTransformer(D,epochs,useTheta,onEpoch){
       onEpoch(ep,evalScores(y,p));
     }
   }
-  const y=[],p=[], accP=new Array(SEQLEN-1).fill(0), accY=new Array(SEQLEN-1).fill(0);
+  const y=[],p=[], accP=new Array(M.SL-1).fill(0), accY=new Array(M.SL-1).fill(0);
   D.te.forEach(s=>{ const r=one(s,false); y.push(...r.y); p.push(...r.p);
     r.p.forEach((v,t)=>{ accP[t]+=v; accY[t]+=r.y[t]; }); });
   const curve=accP.map((v,t)=>({t:t+2,pred:v/D.te.length,act:accY[t]/D.te.length}));
@@ -4963,6 +5186,139 @@ const DEEP_CFG={
   hybrid:{ep:8, run:(D,ep)=>trainTransformer(D,ep,true),
          arch:"Transformer ที่รับค่าความสามารถจาก Neural IRT เป็นอินพุตเสริม"},
 };
+/* ============================================================
+   DeepCDM · แบบจำลองวินิจฉัยเชิงลึก (Neural Cognitive Diagnosis)
+   ฝึกจริงในเบราว์เซอร์ด้วยการตอบข้อสอบจริงจากชีต ExamAnswers และ Q-matrix จริงของคลังข้อสอบ
+
+   โครงสร้างตามแนว NeuralCDM
+     hs   = σ(embedding ของผู้เรียน)      ∈ (0,1)^K   ความรอบรู้รายสมรรถนะ
+     hd   = σ(embedding ความยากของข้อ)    ∈ (0,1)^K
+     disc = σ(สเกลาร์ความจำแนกของข้อ)     ∈ (0,1)
+     x    = q ⊙ (hs − hd) × disc          ใช้ Q-matrix จริงคัดเฉพาะสมรรถนะที่ข้อนั้นวัด
+     P    = σ( MLP(x) )                   ถ่วงน้ำหนักเป็นบวกทั้งหมด
+
+   น้ำหนักของ MLP ถูกบังคับให้ไม่ติดลบหลังทุกก้าวการปรับ (monotonicity)
+   เพื่อรับประกันว่าความรอบรู้ที่สูงขึ้นทำให้โอกาสตอบถูกสูงขึ้นเสมอ
+   ถ้าไม่บังคับ ค่าที่ได้จะยังทำนายแม่น แต่ตีความเป็น "ความรอบรู้" ไม่ได้
+   ============================================================ */
+let CDM_FIT=null;
+const CDM_MIN_RESP=200;      // จำนวนคำตอบรายข้อขั้นต่ำที่ยอมให้ฝึก
+const CDM_MIN_STUDENT=20;    // จำนวนผู้สอบขั้นต่ำ
+
+/** ข้อมูลตั้งต้นของ DeepCDM: คำตอบรายข้อจริง พร้อม Q-matrix จริงของแต่ละข้อ
+    Q-matrix ของข้อสอบมาจากสมรรถนะที่ข้อนั้นสังกัด ซึ่งเป็นโครงสร้าง between-item
+    ตรงกับโมเดล MIRT ที่ระบบใช้อยู่ จึงตีความผลร่วมกันได้ */
+function cdmData(year){
+  if(!EXAM_MX||!Array.isArray(EXAM_MX.responses)||!EXAM_MX.responses.length)
+    return {ok:false,reason:"ยังไม่มีการตอบข้อสอบจริงในฐานข้อมูล"};
+  const comps=activeComps(FW,year);
+  if(!comps.length) return {ok:false,reason:"ชั้นปีนี้ยังไม่มีสมรรถนะที่เปิดใช้"};
+  const ck={}; comps.forEach((c,k)=>ck[c.id]=k);
+  const K=comps.length;
+
+  const itemComp={};
+  BANK.forEach(it=>{ itemComp[String(it.id)]=String(it.comp); });
+  const itemIdx={}, itemList=[], Q=[];
+  const stuIdx={}, stuList=[];
+  const rows=[];
+  EXAM_MX.responses.forEach(r=>{
+    if(year&&Number(r.year)&&Number(r.year)!==Number(year)) return;   // ฝึกแยกรายชั้นปี
+    const sid=String(r.student_id);
+    r.items.forEach((iid,k)=>{
+      const cid=itemComp[String(iid)];
+      if(cid===undefined||ck[cid]===undefined) return;                 // ข้อของสมรรถนะที่ปิดอยู่
+      if(itemIdx[iid]===undefined){
+        itemIdx[iid]=itemList.length; itemList.push(String(iid));
+        const q=new Array(K).fill(0); q[ck[cid]]=1; Q.push(q);
+      }
+      if(stuIdx[sid]===undefined){ stuIdx[sid]=stuList.length; stuList.push(sid); }
+      rows.push({s:stuIdx[sid],i:itemIdx[iid],y:r.correct[k]?1:0});
+    });
+  });
+  if(stuList.length<CDM_MIN_STUDENT)
+    return {ok:false,reason:`มีผู้สอบในชั้นปีนี้เพียง ${stuList.length} คน ต้องมีอย่างน้อย ${CDM_MIN_STUDENT} คน`};
+  if(rows.length<CDM_MIN_RESP)
+    return {ok:false,reason:`มีคำตอบรายข้อเพียง ${rows.length} รายการ ต้องมีอย่างน้อย ${CDM_MIN_RESP} รายการ`};
+  return {ok:true,rows,Q,K,comps,items:itemList,students:stuList,
+          N:stuList.length,J:itemList.length};
+}
+
+function trainDeepCDM(year,epochs){
+  const D=cdmData(year);
+  if(!D.ok) return D;
+  const rng=lcg(20260912), K=D.K, H=Math.max(8,K), B=256;
+  const ThE=tparam(D.N,K,0.25,rng);        // ความรอบรู้ของผู้เรียน (ก่อนซิกมอยด์)
+  const DfE=tparam(D.J,K,0.25,rng);        // ความยากรายสมรรถนะของข้อ
+  const DsE=tparam(D.J,1,0.25,rng);        // ความจำแนกของข้อ
+  const W1=tparam(K,H,0.3,rng), b1=tparam(1,H,0.02,rng);
+  const W2=tparam(H,1,0.3,rng), b2=tparam(1,1,0.02,rng);
+  const ps=[ThE,DfE,DsE,W1,b1,W2,b2];
+  const mono=[W1,W2];                       // น้ำหนักที่ต้องไม่ติดลบ
+  const clampMono=()=>mono.forEach(p=>{ for(let i=0;i<p.d.length;i++) if(p.d[i]<0) p.d[i]=0; });
+  clampMono();
+
+  /* แบ่งตามคำตอบ ไม่ใช่ตามผู้เรียน เพราะเวกเตอร์ความรอบรู้เป็นของผู้เรียนรายคน
+     ผู้เรียนที่ไม่เคยอยู่ในชุดฝึกจะไม่มีเวกเตอร์ให้ใช้ ประเมินผลจึงต้องกันคำตอบบางส่วนแทน */
+  const rs=lcg(778899), tr=[], te=[];
+  D.rows.forEach(r=>(rs()<0.8?tr:te).push(r));
+  if(te.length<20) return {ok:false,reason:"ข้อมูลน้อยเกินกว่าจะกันชุดทดสอบได้"};
+
+  const fwd=(batch)=>{
+    const hs=sigT(lookup(ThE,batch.map(r=>r.s)));
+    const hd=sigT(lookup(DfE,batch.map(r=>r.i)));
+    const ds=sigT(lookup(DsE,batch.map(r=>r.i)));
+    const q=constT(batch.map(r=>D.Q[r.i]),K);
+    const x=mulT(mulT(q,subT(hs,hd)),bcastCols(ds,K));
+    const h=tanhT(addBias(mm(x,W1),b1));
+    return addBias(mm(h,W2),b2);
+  };
+  const run=(rows,train,lr,step)=>{
+    const y=[],p=[];
+    for(let i=0;i<rows.length;i+=B){
+      const bt=rows.slice(i,i+B);
+      tstart();
+      const logit=fwd(bt);
+      const tgt=bt.map(r=>r.y);
+      const l=bceLoss(logit,tgt,null);
+      if(train){ zeroGrad(ps); backward(l); adamStep(ps,lr,step.v++); clampMono(); }
+      tgt.forEach((v,k)=>{ y.push(v); p.push(l.probs[k]); });
+    }
+    return {y,p};
+  };
+  const t0=Date.now(), ep=epochs||60, step={v:0}, curve=[];
+  for(let e=0;e<ep;e++){
+    const shuffled=tr.slice();
+    for(let i=shuffled.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=shuffled[i]; shuffled[i]=shuffled[j]; shuffled[j]=t; }
+    run(shuffled,true,0.05,step);
+    if(e%Math.max(1,Math.floor(ep/12))===0||e===ep-1){
+      const r=run(te,false,0,step);
+      curve.push({ep:e+1,...evalScores(r.y,r.p)});
+    }
+  }
+  const fin=run(te,false,0,step);
+  tstart();   // ปล่อยเทปทิ้ง ไม่ให้ค้างในหน่วยความจำ
+
+  /* ผลวินิจฉัย: ความรอบรู้รายสมรรถนะของผู้เรียนแต่ละคน */
+  const sg=z=>1/(1+Math.exp(-Math.max(-30,Math.min(30,z))));
+  const nBy=new Array(D.N).fill(0);
+  D.rows.forEach(r=>{ nBy[r.s]++; });
+  const mastery=D.students.map((sid,i)=>({
+    sid, name:(userById(sid)||{}).name||sid,
+    program:(userById(sid)||{}).program||"",
+    v:Array.from({length:K},(_,k)=>sg(ThE.d[i*K+k])),
+    n:nBy[i]}));
+  const itemDiff=D.items.map((iid,j)=>({
+    id:iid, comp:D.comps[D.Q[j].indexOf(1)]||null,
+    diff:Array.from({length:K},(_,k)=>sg(DfE.d[j*K+k])),
+    disc:sg(DsE.d[j])}));
+
+  CDM_FIT={year, K, comps:D.comps, N:D.N, J:D.J, nResp:D.rows.length,
+    nTrain:tr.length, nTest:te.length, epochs:ep, ms:Date.now()-t0,
+    metrics:evalScores(fin.y,fin.p), curve, mastery, itemDiff,
+    nParam:ps.reduce((a,p)=>a+p.d.length,0), at:new Date().toISOString()};
+  return {ok:true, ...CDM_FIT};
+}
+
 function deepData(){ return DEEP_D||(DEEP_D=seqData()); }
 function trainDeep(id){
   const cfg=DEEP_CFG[id]; if(!cfg) return null;
@@ -4974,6 +5330,37 @@ function trainDeep(id){
 }
 function trainDeepAll(){ Object.keys(DEEP_CFG).forEach(trainDeep); return DEEP; }
 const deepReady=id=>!!DEEP[id];
+
+/** บอกที่มาของลำดับการตอบที่ใช้ฝึกแบบจำลองเชิงลึก ตามความจริงของข้อมูลที่มีอยู่ขณะนั้น
+    เรียก seqData เพื่อให้ SEQ_SRC เป็นค่าล่าสุดเสมอ ผลถูกแคชไว้ที่ DEEP_D อยู่แล้ว */
+function seqSourceCard(){
+  deepData();
+  const s=SEQ_SRC, real=s.mode==="real";
+  return card("ข้อมูลที่ใช้ฝึก",real?"ใช้การสอบจริงจากฐานข้อมูล":"ยังไม่มีการสอบจริงมากพอ",
+    `<div class="alert ${real?"alert-ok":"alert-warn"}" style="margin-top:0">
+      ${real
+        ?`<b>ฝึกจากการสอบจริง</b> ${s.n.toLocaleString()} ลำดับ จากผู้สอบ ${s.students} คน ความยาวลำดับละ ${s.len} ข้อ
+           อ่านจากชีต ExamAttempts และ ExamAnswers ผ่านคำสั่ง exam.matrix`
+        :`<b>ยังใช้ชุดจำลอง</b> ขณะนี้มีลำดับการสอบจริงที่ยาวพอเพียง ${s.have||0} ลำดับ
+           ต้องมีอย่างน้อย ${s.need||SEQ_REAL_MIN_SEQ} ลำดับ (ลำดับละไม่ต่ำกว่า ${SEQ_REAL_MIN_LEN} ข้อ)
+           ระบบจึงฝึกจากการตอบที่จำลองจากโมเดล M4PL ตามพารามิเตอร์จริงของข้อสอบ
+           ค่าที่ได้ใช้ยืนยันว่ากลไกการฝึกทำงานถูกต้อง แต่ยังไม่ใช่พฤติกรรมการเรียนรู้ของผู้เรียนจริง
+           ระบบจะเปลี่ยนเป็นข้อมูลจริงอัตโนมัติเมื่อมีผู้เข้าสอบครบตามจำนวน`}
+      ${LIVE.mxErr?`<br><span style="color:var(--warn)">${esc(LIVE.mxErr)}</span>`:""}
+     </div>
+     <table class="tight"><tbody>
+      <tr><td style="width:230px;color:var(--muted)">ลำดับการตอบ</td><td>${real
+        ?`การสอบหนึ่งครั้งของผู้เรียนหนึ่งคน ตัดให้ยาวเท่ากันที่ ${s.len} ข้อแรก`
+        :`ผู้สอบหนึ่งคนต่อหนึ่งสมรรถนะ ความยาว ${s.len} ข้อ`}</td></tr>
+      <tr><td style="color:var(--muted)">การแบ่งข้อมูล</td><td>แบ่งตามผู้สอบ 80 ต่อ 20 ผู้สอบในชุดทดสอบไม่ปรากฏในชุดฝึก</td></tr>
+      <tr><td style="color:var(--muted)">งานที่ทำนาย</td><td>ความน่าจะเป็นที่จะตอบข้อถัดไปถูก จากประวัติการตอบก่อนหน้า</td></tr>
+      <tr><td style="color:var(--muted)">ที่มาของข้อมูล</td><td>${real
+        ?`ชีต ExamAnswers ของคณะ · ${EXAM_MX&&EXAM_MX.summary?EXAM_MX.summary.answers.toLocaleString():"—"} คำตอบรายข้อ`
+        :`ชุดจำลองในเบราว์เซอร์ ตามพารามิเตอร์ข้อสอบที่บันทึกไว้จริง`}</td></tr>
+     </tbody></table>
+     ${liveOn()?`<div class="row" style="margin-top:.8rem">
+       <button class="btn btn-ghost btn-sm" data-act="mxreload">ดึงข้อมูลการสอบจริงใหม่</button></div>`:""}`,"",false);
+}
 
 /* ---------- หน้าแสดงผลโมเดลเชิงลึก ---------- */
 function edmDeepPanel(m,cache){
@@ -4990,13 +5377,7 @@ function edmDeepPanel(m,cache){
          <button class="btn btn-primary" style="width:auto;margin-top:0" data-act="deeptrain" data-v="${m.id}">ฝึกโมเดล ${esc(m.name)}</button>
          <button class="btn btn-ghost btn-sm" data-act="deeptrainall">ฝึกทั้งสี่โมเดล (ราว 20 วินาที)</button>
        </div>`)}
-    ${card("ข้อมูลที่ใช้ฝึก","",
-      `<table class="tight"><tbody>
-        <tr><td style="width:230px;color:var(--muted)">ลำดับการตอบ</td><td>ผู้สอบหนึ่งคนต่อหนึ่งสมรรถนะ ความยาว 30 ข้อ</td></tr>
-        <tr><td style="color:var(--muted)">การแบ่งข้อมูล</td><td>แบ่งตามผู้สอบ 80 ต่อ 20 ผู้สอบในชุดทดสอบไม่ปรากฏในชุดฝึก</td></tr>
-        <tr><td style="color:var(--muted)">งานที่ทำนาย</td><td>ความน่าจะเป็นที่จะตอบข้อถัดไปถูก จากประวัติการตอบก่อนหน้า</td></tr>
-        <tr><td style="color:var(--muted)">ที่มาของข้อมูล</td><td>การตอบของกลุ่มทดลองใช้ข้อสอบซึ่งจำลองจากโมเดล M4PL ตามพารามิเตอร์จริงของข้อสอบ ยังไม่ใช่ข้อมูลผู้เรียนจริง</td></tr>
-      </tbody></table>`,"",false)}</div>`;
+    ${seqSourceCard()}</div>`;
   const k=r.metrics;
   return `<div class="stack">${head}
     ${card("Performance Metrics","วัดบนชุดทดสอบที่โมเดลไม่เคยเห็น "+k.n.toLocaleString()+" การทำนาย",
@@ -5016,9 +5397,12 @@ function edmDeepPanel(m,cache){
       <div class="row" style="margin-top:.9rem">
         <button class="btn btn-ghost btn-sm" data-act="deeptrain" data-v="${m.id}">ฝึกใหม่</button>
         <button class="btn btn-ghost btn-sm" data-act="deeptrainall">ฝึกทั้งสี่โมเดล</button></div>`,"",false)}
+    ${seqSourceCard()}
     <div class="notebox">โมเดลกลุ่มนี้ทำนายการตอบรายข้อ ซึ่งเป็นคนละเป้าหมายกับโมเดลกลุ่ม Machine Learning ที่ทำนายว่าผู้เรียนจะผ่านเกณฑ์ชั้นปีหรือไม่
       จึงนำค่ามาเทียบกันโดยตรงไม่ได้ ตารางเปรียบเทียบจึงแยกสองกลุ่มออกจากกัน
-      นอกจากนี้ข้อมูลที่ใช้ฝึกยังเป็นการตอบของกลุ่มทดลองใช้ที่จำลองขึ้น เมื่อมีข้อมูลการสอบจริงต้องฝึกซ้ำทั้งหมด</div>
+      ${SEQ_SRC.mode==="real"
+        ?"เมื่อมีผู้เข้าสอบเพิ่ม ควรกดฝึกใหม่เพื่อให้โมเดลสะท้อนข้อมูลล่าสุด"
+        :"ข้อมูลที่ใช้ฝึกยังเป็นการตอบที่จำลองขึ้น เมื่อมีข้อมูลการสอบจริงครบตามจำนวนต้องฝึกซ้ำทั้งหมด"}</div>
   </div>`;
 }
 
@@ -5306,6 +5690,25 @@ function confusionHTML(m){
     </tbody></table>`;
 }
 
+/** แถบบอกที่มาของข้อมูลที่หน้านั้นใช้จริง แสดงบนหน้าที่วิเคราะห์ด้วยแบบจำลอง
+    ผู้อ่านต้องแยกออกทันทีว่าตัวเลขใดมาจากฐานข้อมูลจริง และตัวเลขใดยังเป็นชุดจำลอง */
+function dataSourceBar(){
+  if(!liveOn())
+    return `<div class="alert alert-warn" style="margin-top:0">
+      <b>โหมดสาธิต</b> ตัวเลขทั้งหมดมาจากข้อมูลจำลองในไฟล์นี้ ใช้ตรวจการทำงานของระบบเท่านั้น</div>`;
+  const nStu=filteredStudents().length;
+  const nAsm=Object.keys(ASSESS_RAW).reduce((n,k)=>n+ASSESS_RAW[k].length,0);
+  const mx=EXAM_MX&&EXAM_MX.summary;
+  const chip=(ok,label,detail)=>`<span class="tag ${ok?"tag-ok":"tag-n"}" style="margin-right:.45rem">
+    ${ok?"●":"○"} ${label}${detail?" · "+detail:""}</span>`;
+  return `<div class="notebox" style="margin-top:0">
+    <b>ที่มาของข้อมูลบนหน้านี้</b><br>
+    ${chip(nAsm>0,"ผลการประเมินจริง",nAsm?`${nAsm.toLocaleString()} คะแนนรายตัวชี้วัด · นักศึกษา ${nStu} คน`:"ยังไม่มี")}
+    ${chip(!!(mx&&mx.answers),"การตอบข้อสอบจริง",mx&&mx.answers?`${mx.answers.toLocaleString()} คำตอบ · ผู้สอบ ${mx.tested} คน`:"ยังไม่มีผู้เข้าสอบ")}
+    ${chip(SEQ_SRC.mode==="real","ลำดับการตอบสำหรับโมเดลเชิงลึก",SEQ_SRC.mode==="real"?`${SEQ_SRC.n} ลำดับ`:"ยังใช้ชุดจำลอง")}
+    ${LIVE.mxErr?`<div style="color:var(--warn);margin-top:.4rem">${esc(LIVE.mxErr)}</div>`:""}</div>`;
+}
+
 /* ---------- หน้า Educational Data Mining ---------- */
 function edmPage(){
   const cache=edmCompute();
@@ -5329,7 +5732,7 @@ function edmPage(){
   const right = S.edmCompare ? edmCompare(cache)
     : (m.deep ? edmDeepPanel(m,cache) : edmResult(cache,m));
 
-  return `<div class="stack">${filterBar()}
+  return `<div class="stack">${filterBar()}${dataSourceBar()}
     <div class="notebox">ตัวแปรเป้าหมายคือ "คะแนนเฉลี่ยรอบสุดท้ายต่ำกว่าระดับเป้าหมายของชั้นปี"
       ทำนายจากผลการประเมินจริงของรอบแรกถึงรอบรองสุดท้ายที่ผู้ประเมินบันทึกไว้
       ค่าประสิทธิภาพทั้งหมดมาจากการตรวจสอบไขว้แบบ leave-one-out ไม่ใช่ความแม่นยำบนข้อมูลที่ใช้ฝึก
@@ -5888,19 +6291,54 @@ function fairnessBy(cache,id,keyFn,labelFn){
     di: sels.length>1?Math.min(...sels)/Math.max(...sels):null};
 }
 /** Mantel-Haenszel DIF รายข้อ พร้อมการจัดระดับตามเกณฑ์ ETS */
-function difAnalysis(cid){
+/** แบ่งผู้สอบเป็นกลุ่มอ้างอิงกับกลุ่มเปรียบเทียบด้วยคุณลักษณะจริงของผู้เรียน
+    เลือกสองกลุ่มที่มีผู้สอบมากที่สุดในตัวแปรนั้น เพราะ Mantel-Haenszel เทียบได้ทีละคู่
+    คืน null เมื่อยังโยงแถวกลับไปหาผู้เรียนไม่ได้ หรือกลุ่มใหญ่สองกลุ่มยังเล็กเกินไป */
+function difGroups(sids,varId){
+  const v=DIF_VARS.find(x=>x.id===varId);
+  if(!v||!v.of||!sids) return null;
+  const key=sids.map(id=>v.of(userById(id)));
+  const cnt={};
+  key.forEach(k=>{ if(k) cnt[k]=(cnt[k]||0)+1; });
+  const top=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]).slice(0,2);
+  if(top.length<2||cnt[top[1]]<DIF_MIN_GROUP) return null;
+  const grp=key.map(k=>k===top[0]?0:k===top[1]?1:-1);
+  return {grp,refLabel:top[0],focLabel:top[1],nRef:cnt[top[0]],nFoc:cnt[top[1]],varLabel:v.label};
+}
+/* ผู้สอบขั้นต่ำต่อกลุ่ม ต่ำกว่านี้ค่าอัตราส่วนออดส์จะแกว่งจนตีความไม่ได้ */
+const DIF_MIN_GROUP=15;
+
+function difAnalysis(cid,varId){
   const items=bankOf(cid), cols=items.map(it=>BANK.indexOf(it));
-  const P={resp:pilotRows(cols)};          // ใช้เฉพาะผู้ที่ทำครบทุกข้อในชุดนี้
-  const N=P.resp.length;
-  /* กลุ่มอ้างอิงและกลุ่มเปรียบเทียบกำหนดแบบสุ่มโดยไม่มีความแตกต่างจริง
-     ใช้เพื่อยืนยันว่ากลไกตรวจ DIF ไม่แจ้งผลบวกลวงเกินสมควร */
-  const rng=lcg(515151), grp=[];
-  for(let i=0;i<N;i++) grp.push(rng()<0.5?0:1);
+  const R=pilotRowsIdx(cols);              // ใช้เฉพาะผู้ที่ทำครบทุกข้อในชุดนี้
+  let resp=R.rows;
+  /* แบ่งกลุ่มด้วยคุณลักษณะจริงเมื่อทำได้ มิฉะนั้นจึงถอยไปสุ่ม
+     การสุ่มไม่ได้ตรวจความลำเอียงจริง แต่ใช้ยืนยันว่ากลไกไม่แจ้งผลบวกลวงเกินสมควร */
+  const G=difGroups(R.sid,varId||"program");
+  let grp, meta;
+  if(G){
+    /* ตัดผู้สอบที่ไม่อยู่ในสองกลุ่มใหญ่ออก เพื่อให้เป็นการเทียบคู่เดียวตามวิธี MH */
+    const keep=[]; G.grp.forEach((g,i)=>{ if(g>=0) keep.push(i); });
+    resp=keep.map(i=>resp[i]);
+    grp=keep.map(i=>G.grp[i]);
+    meta={real:true,...G,n:resp.length};
+  } else {
+    const rng=lcg(515151); grp=[];
+    for(let i=0;i<resp.length;i++) grp.push(rng()<0.5?0:1);
+    meta={real:false,refLabel:"กลุ่มสุ่ม ก",focLabel:"กลุ่มสุ่ม ข",
+      nRef:grp.filter(g=>g===0).length,nFoc:grp.filter(g=>g===1).length,
+      varLabel:"สุ่ม",n:resp.length,
+      why:!R.sid?"ยังไม่มีผลการสอบจริงที่โยงกลับไปหาผู้เรียนได้"
+                :`กลุ่มย่อยของตัวแปรที่เลือกยังมีผู้สอบไม่ถึง ${DIF_MIN_GROUP} คน`};
+  }
+  const P={resp}, N=resp.length;
   const tot=[]; for(let i=0;i<N;i++){ let t=0; cols.forEach(c=>t+=P.resp[i][c]); tot.push(t); }
   const J=items.length, K=6;
+  if(!N) return {rows:items.map(it=>({it,alpha:null,dd:null,nR:0,nF:0,pR:null,pF:null,
+    lvl:"คำนวณไม่ได้",cls:"tag-n"})),meta:meta};
   const lo=Math.min(...tot), hi=Math.max(...tot), w=Math.max(1,(hi-lo+1)/K);
   const strat=tot.map(t=>clamp(Math.floor((t-lo)/w),0,K-1));
-  return items.map((it,j)=>{
+  const rows=items.map((it,j)=>{
     let num=0, den=0, nR=0, nF=0, pR=0, pF=0;
     for(let k=0;k<K;k++){
       let a=0,b=0,c=0,d=0;
@@ -5921,6 +6359,7 @@ function difAnalysis(cid){
       lvl: dd===null?"คำนวณไม่ได้": ad<1.0?"A · ไม่พบ DIF": ad<1.5?"B · DIF ปานกลาง":"C · DIF สูง",
       cls: dd===null?"tag-n": ad<1.0?"tag-ok": ad<1.5?"tag-warn":"tag-risk"};
   });
+  return {rows,meta};
 }
 
 /* ---------- หน้าจอ ---------- */
@@ -5941,7 +6380,7 @@ function xaiPage(){
   else if(S.xaiTab==="fair") body=xaiFair(cache);
   else if(S.xaiTab==="dif") body=xaiDIF();
   else body=xaiGov();
-  return `<div class="stack">${filterBar()}
+  return `<div class="stack">${filterBar()}${dataSourceBar()}
     ${S.xaiTab==="dif"||S.xaiTab==="gov"?"":msel}
     <div class="tabs">${tabs}</div>${body}</div>`;
 }
@@ -6052,7 +6491,8 @@ function xaiFair(cache){
 }
 function xaiDIF(){
   const c=FW.competencies.find(x=>x.id===(S.iqComp||FW.competencies[0].id))||FW.competencies[0];
-  const res=difAnalysis(c.id);
+  const varId=S.difVar||"program";
+  const out=difAnalysis(c.id,varId), res=out.rows, M=out.meta;
   const cnt={A:0,B:0,C:0};
   res.forEach(r=>{ const k=r.lvl.charAt(0); if(cnt[k]!==undefined) cnt[k]++; });
   const rows=res.map(r=>`<tr>
@@ -6064,21 +6504,34 @@ function xaiDIF(){
     <td><span class="tag ${r.cls}">${r.lvl}</span></td></tr>`).join("");
   const sel=`<select class="inp" style="width:auto" data-act="iqcomp">${FW.competencies.map(x=>
     `<option value="${x.id}" ${x.id===c.id?"selected":""}>${x.code} · ${esc(x.th)}</option>`).join("")}</select>`;
+  const vsel=`<select class="inp" style="width:auto" data-act="difvar">${DIF_VARS.map(v=>
+    `<option value="${v.id}" ${v.id===varId?"selected":""}>${v.label}</option>`).join("")}</select>`;
   return `<div class="stack">
     <div class="bar-strip"><span class="lb">สมรรถนะ</span>${sel}
-      <span class="far">${res.length} ข้อ · ผู้สอบ ${pilot().resp.length} คน</span></div>
-    <div class="notebox">การตรวจ DIF ใช้วิธี Mantel-Haenszel แบ่งชั้นด้วยคะแนนรวม 6 ชั้น แล้วจัดระดับตามเกณฑ์ ETS
-      ในต้นแบบนี้กลุ่มอ้างอิงและกลุ่มเปรียบเทียบถูกกำหนดแบบสุ่มโดยไม่มีความแตกต่างจริง
-      ผลที่ควรได้คือข้อส่วนใหญ่อยู่ระดับ A ซึ่งใช้ยืนยันว่ากลไกตรวจไม่แจ้งผลบวกลวงเกินสมควร
-      การใช้งานจริงต้องแทนที่ด้วยกลุ่มที่ต้องการตรวจสอบจริง เช่น เพศ สาขาวิชา หรือประเภทสถานศึกษาที่ออกฝึก</div>
+      <span class="lb" style="margin-left:.6rem">ตัวแปรจัดกลุ่ม</span>${vsel}
+      <span class="far">${res.length} ข้อ · ผู้สอบที่นำมาเทียบ ${M.n} คน</span></div>
+    ${M.real
+      ? `<div class="alert alert-ok" style="margin-top:0"><b>ตรวจด้วยกลุ่มจริงจากฐานข้อมูล</b><br>
+          ตัวแปร ${esc(M.varLabel)} · กลุ่มอ้างอิง <b>${esc(M.refLabel)}</b> ${M.nRef} คน
+          เทียบกับกลุ่มเปรียบเทียบ <b>${esc(M.focLabel)}</b> ${M.nFoc} คน
+          <br>วิธี Mantel-Haenszel แบ่งชั้นด้วยคะแนนรวม 6 ชั้น จัดระดับตามเกณฑ์ ETS
+          ${varId==="random"?"":"<br>เลือกได้ทีละคู่ที่มีผู้สอบมากที่สุดในตัวแปรนั้น เพราะวิธีนี้เทียบได้ทีละสองกลุ่ม"}</div>`
+      : `<div class="alert alert-warn" style="margin-top:0"><b>ยังตรวจด้วยกลุ่มจริงไม่ได้ ระบบจึงใช้การสุ่มแบ่งกลุ่มแทน</b><br>
+          ${esc(M.why||"")} · ผลที่ควรได้คือข้อส่วนใหญ่อยู่ระดับ A ซึ่งใช้ยืนยันว่ากลไกตรวจไม่แจ้งผลบวกลวงเกินสมควร
+          <br>เมื่อมีผู้เข้าสอบจริงครบตามจำนวน ระบบจะเปลี่ยนไปใช้กลุ่มจริงอัตโนมัติ
+          ${LIVE.mxErr?`<br><span style="color:var(--warn)">${esc(LIVE.mxErr)}</span>`:""}</div>`}
+    <div class="notebox">ระบบเก็บเฉพาะสาขาวิชา ชั้นปี และสถานศึกษาที่ออกฝึก จึงตรวจได้เท่าที่มีข้อมูลจริง
+      มิติที่กฎหมายคุ้มครอง เช่น เพศหรือสถานะทางเศรษฐกิจ ระบบไม่ได้เก็บไว้ จึงยังตรวจไม่ได้
+      หากคณะต้องการตรวจมิติเหล่านั้น ต้องเก็บข้อมูลโดยได้รับความยินยอมก่อน</div>
     <div class="grid g4">
       ${stat("ระดับ A · ไม่พบ DIF",cnt.A,"|D-DIF| น้อยกว่า 1.0")}
       ${stat("ระดับ B · ปานกลาง",cnt.B,"1.0 ถึง 1.5")}
       ${stat("ระดับ C · สูง",cnt.C,"เกิน 1.5 ควรทบทวนข้อ")}
-      ${stat("สัดส่วนข้อที่ผ่าน",((cnt.A/res.length)*100).toFixed(0)+"%","ยิ่งสูงยิ่งดี")}</div>
-    ${card("ผลการตรวจรายข้อ","αMH คืออัตราส่วนออดส์ ค่าใกล้ 1 แปลว่าไม่มีความลำเอียง · D-DIF คือค่าที่แปลงเป็นสเกล ETS",
+      ${stat("สัดส่วนข้อที่ผ่าน",res.length?((cnt.A/res.length)*100).toFixed(0)+"%":"—","ยิ่งสูงยิ่งดี")}</div>
+    ${card("ผลการตรวจรายข้อ",`αMH คืออัตราส่วนออดส์ ค่าใกล้ 1 แปลว่าไม่มีความลำเอียง · D-DIF คือค่าที่แปลงเป็นสเกล ETS
+      · กลุ่มอ้างอิงคือ ${esc(M.refLabel)} · กลุ่มเปรียบเทียบคือ ${esc(M.focLabel)}`,
       `<div class="scroll-y"><table class="tight"><thead><tr><th>รหัสข้อ</th>
-        <th class="num">สัดส่วนตอบถูก กลุ่มอ้างอิง</th><th class="num">กลุ่มเปรียบเทียบ</th>
+        <th class="num">สัดส่วนตอบถูก ${esc(M.refLabel)}</th><th class="num">${esc(M.focLabel)}</th>
         <th class="num">αMH</th><th class="num">D-DIF</th><th>ระดับ</th></tr></thead><tbody>${rows}</tbody></table></div>`,"",false)}</div>`;
 }
 function xaiGov(){
@@ -6093,7 +6546,10 @@ function xaiGov(){
       </ul>`)}
     ${card("ข้อจำกัดของการตรวจสอบในต้นแบบนี้","ต้องแจ้งให้ผู้ใช้ทราบก่อนนำผลไปอ้างอิง",
       `<ul style="margin:0;padding-left:1.1rem;font-size:.88rem;line-height:1.9">
-        <li>ข้อมูลผู้เรียนเป็นข้อมูลจำลอง ผลความเป็นธรรมที่ได้จึงไม่สะท้อนสถานการณ์จริงของคณะ</li>
+        <li>${LIVE.fwLive
+          ?`ผลความเป็นธรรมคำนวณจากผลการประเมินจริงของคณะ ${edmCompute().rows?edmCompute().rows.length:0} คน
+             ส่วนการตรวจความลำเอียงรายข้อ (DIF) ใช้การตอบข้อสอบจริงเมื่อมีผู้สอบครบตามจำนวน มิฉะนั้นจะแจ้งไว้ในแท็บนั้น`
+          :`ขณะนี้อยู่ในโหมดสาธิต ข้อมูลผู้เรียนเป็นข้อมูลจำลอง ผลความเป็นธรรมที่ได้จึงไม่สะท้อนสถานการณ์จริงของคณะ`}</li>
         <li>กลุ่มย่อยหลายกลุ่มมีสมาชิกไม่ถึง ${XAI_MIN_N} คน ระบบจึงตัดออกจากการคำนวณส่วนต่างและแสดงเป็นกลุ่มเล็ก</li>
         <li>ระบบยังไม่มีข้อมูลคุณลักษณะที่กฎหมายคุ้มครอง เช่น เพศ สถานะทางเศรษฐกิจ หรือความพิการ ซึ่งเป็นมิติที่ต้องตรวจในการใช้งานจริง</li>
         <li>ค่า Shapley อธิบายว่าแบบจำลองใช้ข้อมูลใด ไม่ได้พิสูจน์ความเป็นเหตุเป็นผล</li>
@@ -6144,10 +6600,74 @@ function irrTraceable(){
   const traced=list.filter(st=>(ASSESS_LOG[st.id]||[]).some(a=>a.assessor_id)).length;
   return {n:list.length,traced};
 }
+/** ที่มาของคู่คะแนนที่ใช้คำนวณล่าสุด ใช้แจ้งผู้ใช้ว่าสถิติอ้างอิงระเบียนจริงระดับใด */
+let IRR_SRC={mode:"none",rounds:0,raters:0,cells:0,students:0};
+
 /** คู่คะแนนระดับตัวชี้วัดของฝ่ายอาจารย์นิเทศก์กับฝ่ายครูพี่เลี้ยง ใช้เป็นฐานของสถิติทั้งหมด
     ฝ่ายอาจารย์นิเทศก์คิดจากค่าเฉลี่ยของวิชาชีพครูกับวิชาเอก ให้ตรงกับกติกาคะแนนรวม
-    เก็บคะแนนประเมินตนเองไว้ด้วย เพื่อดูแนวโน้มการประเมินตนเองสูงหรือต่ำกว่าผู้ประเมินภายนอก */
+    เก็บคะแนนประเมินตนเองไว้ด้วย เพื่อดูแนวโน้มการประเมินตนเองสูงหรือต่ำกว่าผู้ประเมินภายนอก
+
+    ใช้ระเบียนดิบจากฐานข้อมูลก่อนเสมอ เพราะได้ทั้งรหัสผู้ประเมินตัวจริงและครบทุกรอบ
+    ถ้ายังไม่มีระเบียนดิบมากพอจึงถอยไปใช้ค่าเฉลี่ยรายช่องทางของรอบล่าสุดแบบเดิม
+    ซึ่งบอกความสอดคล้องระหว่างฝ่ายได้ แต่ระบุตัวผู้ประเมินไม่ได้จริง */
 function irrPairs(){
+  const real=irrPairsRaw();
+  if(real.rows.length>=IRR_MIN_N){ IRR_SRC=real.src; return real.rows; }
+  const fb=irrPairsChannel();
+  IRR_SRC={mode:"channel",rounds:1,raters:0,cells:fb.length,
+    students:new Set(fb.map(r=>r.sid)).size,
+    note:real.rows.length?`มีระเบียนดิบเพียง ${real.rows.length} คู่ ยังไม่ถึงขั้นต่ำ ${IRR_MIN_N} คู่`:""};
+  return fb;
+}
+
+/** คู่คะแนนจากระเบียนดิบในฐานข้อมูล ครบทุกรอบและระบุผู้ประเมินได้ตัวจริง
+    ช่อง (cell) ที่ใช้เทียบคือ นักศึกษา × ตัวชี้วัด × รอบ ซึ่งเป็นหน่วยที่ผู้ประเมินสองฝ่าย
+    ให้คะแนนบนสิ่งเดียวกันจริง ๆ นับเฉพาะช่องที่มีทั้งฝ่ายอาจารย์นิเทศก์และฝ่ายครูพี่เลี้ยง */
+function irrPairsRaw(){
+  const rows=[]; const raterIds=new Set(), roundNos=new Set(), sids=new Set();
+  filteredStudents().forEach(st=>{
+    const raw=ASSESS_RAW[st.id]; if(!raw||!raw.length) return;
+    const y=st.year, meta={};
+    activeComps(FW,y).forEach(c=>indsOf(FW,y,c.id).forEach(i=>{ meta[i.id]={comp:c,ind:i}; }));
+    const cells={};
+    raw.forEach(r=>{
+      if(!meta[r.ind_id]) return;                       // ตัวชี้วัดที่ปิดหรือถูกลบไปแล้ว
+      const k=r.round+"|"+r.ind_id;
+      const o=cells[k]||(cells[k]={round:r.round,ind_id:r.ind_id,adv:[],men:[],slf:[],date:r.date});
+      const box=r.group==="advisor"?o.adv:r.group==="mentor"?o.men:r.group==="self"?o.slf:null;
+      if(box) box.push(r);
+      if(r.date>o.date) o.date=r.date;
+    });
+    Object.keys(cells).forEach(k=>{
+      const o=cells[k];
+      if(!o.adv.length||!o.men.length) return;          // ขาดฝ่ายใดฝ่ายหนึ่ง เทียบกันไม่ได้
+      const m=meta[o.ind_id];
+      const who=(list,kind)=>{
+        const cnt={};
+        list.forEach(r=>{ if(r.assessor_id) cnt[r.assessor_id]=(cnt[r.assessor_id]||0)+1; });
+        const id=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];
+        if(!id) return {id:"unknown-"+kind,name:kind==="lec"?"อาจารย์นิเทศก์ (ไม่ระบุตัว)":"ครูพี่เลี้ยง (ไม่ระบุตัว)",traced:false};
+        const u=userById(id);
+        return {id,name:u?u.name:(kind==="lec"?"อาจารย์นิเทศก์":"ครูพี่เลี้ยง")+" "+id.slice(-4),traced:true};
+      };
+      const A=who(o.adv,"lec"), M=who(o.men,"men");
+      if(A.traced) raterIds.add(A.id);
+      if(M.traced) raterIds.add(M.id);
+      roundNos.add(o.round); sids.add(st.id);
+      rows.push({sid:st.id,student:st.name,program:st.program,year:y,comp:m.comp,ind:m.ind,
+        round:o.round,date:o.date,
+        lec:mean(o.adv.map(r=>r.score)),men:mean(o.men.map(r=>r.score)),
+        slf:o.slf.length?mean(o.slf.map(r=>r.score)):null,
+        lecId:A.id,lecName:A.name,menId:M.id,menName:M.name,traced:A.traced&&M.traced});
+    });
+  });
+  return {rows,src:{mode:"raw",rounds:roundNos.size,raters:raterIds.size,
+    cells:rows.length,students:sids.size,
+    traced:rows.filter(r=>r.traced).length}};
+}
+
+/** วิธีเดิม: ค่าเฉลี่ยรายช่องทางของรอบล่าสุด ใช้เมื่อระเบียนดิบยังไม่พอ */
+function irrPairsChannel(){
   const rows=[];
   filteredStudents().forEach(st=>{
     const y=st.year, L=RESP_L[st.id], J=RESP_A[st.id], M=RESP_M[st.id], F=RESP_S[st.id];
@@ -6157,6 +6677,7 @@ function irrPairs(){
       const adv=[L&&L[i.id],J&&J[i.id]].filter(x=>x!==undefined&&x!==null&&x!==false);
       if(!adv.length||!M||M[i.id]===undefined) return;
       rows.push({sid:st.id,student:st.name,program:st.program,year:y,comp:c,ind:i,
+        round:null,date:"",traced:false,
         lec:mean(adv),men:M[i.id],slf:(F&&F[i.id]!==undefined)?F[i.id]:null,
         lecId:rl.id,lecName:rl.name,menId:rm.id,menName:rm.name});
     }));
@@ -6270,6 +6791,26 @@ function irrAnalyze(){
 }
 const irrBand=v=>v===null?["—","tag-n"]:v>=0.90?["ดีเยี่ยม","tag-ok"]:v>=0.75?["ดี","tag-ok"]:
   v>=0.60?["พอใช้","tag-warn"]:v>=0.40?["ต่ำ","tag-warn"]:["ต่ำมาก","tag-risk"];
+
+/** แจ้งที่มาของตัวเลขบนหน้านี้ตามความจริง ผู้อ่านต้องรู้ว่าสถิติอ้างอิงระเบียนระดับใด
+    ก่อนนำไปใช้พูดคุยกับผู้ประเมินเป็นรายบุคคล */
+function irrSourceNote(){
+  const s=IRR_SRC;
+  if(s.mode==="raw"){
+    const pct=s.cells?Math.round(s.traced/s.cells*100):0;
+    return `<div class="alert alert-ok" style="margin-top:0"><b>คำนวณจากระเบียนการประเมินจริงในฐานข้อมูล</b><br>
+      ${s.cells.toLocaleString()} ช่องเทียบ (นักศึกษา × ตัวชี้วัด × รอบ) · นักศึกษา ${s.students} คน ·
+      ${s.rounds} รอบการประเมิน · ผู้ประเมินที่ระบุตัวได้ ${s.raters} คน ·
+      ระบุตัวผู้ประเมินทั้งสองฝ่ายได้ ${pct}% ของช่องเทียบ
+      ${pct<100?`<br>ช่องที่ระบุไม่ได้คือระเบียนที่ยังไม่มีรหัสผู้ประเมินในชีต Assessments สถิติรายผู้ประเมินจึงไม่นับช่องเหล่านั้น`:""}</div>`;
+  }
+  if(s.mode==="channel")
+    return `<div class="alert alert-warn" style="margin-top:0"><b>ยังไม่มีระเบียนดิบมากพอ ระบบจึงคำนวณจากค่าเฉลี่ยรายช่องทางของรอบล่าสุด</b><br>
+      ${s.note?esc(s.note)+" · ":""}ค่าความสอดคล้องระหว่างฝ่ายยังใช้อ้างอิงได้
+      แต่สถิติรายผู้ประเมินอนุมานตัวผู้ประเมินจากบทบาทในสาขา จึงใช้เป็นแนวโน้มเท่านั้น
+      กดปุ่มซิงก์ผลการประเมินเพื่อดึงระเบียนดิบจากฐานข้อมูลให้ครบ</div>`;
+  return "";
+}
 
 /* ============================================================
    ความสอดคล้องของผู้ประเมินรายบุคคล
@@ -6424,22 +6965,16 @@ function irrPage(){
   else if(S.irrTab==="comp") body=irrComps(A);
   else if(S.irrTab==="note") body=irrNotes(A);
   else body=irrSummary(A);
-  return `<div class="stack">${filterBar()}<div class="tabs">${tabs}</div>${body}</div>`;
+  return `<div class="stack">${filterBar()}${dataSourceBar()}<div class="tabs">${tabs}</div>${body}</div>`;
 }
 function irrSummary(A){
   const [kb,kc]=irrBand(A.kappa), [ib,ic]=irrBand(A.iccCell?A.iccCell.iccK:null);
-  /* บอกให้ชัดว่าสถิติรายผู้ประเมินอ้างอิงตัวผู้ประเมินจากระเบียนจริงได้กี่ราย
-     ผู้เรียนที่ยังไม่มีระเบียนจะใช้การอนุมานจากบทบาทในสาขา ซึ่งเชื่อถือได้น้อยกว่า */
-  const tr=irrTraceable();
-  const traceNote=tr.n
-    ? `<div class="notebox">ระบุตัวผู้ประเมินจากระเบียนจริงได้ ${tr.traced} จาก ${tr.n} คน
-        ${tr.traced<tr.n?`ส่วนที่เหลืออนุมานจากบทบาทในสาขา สถิติรายผู้ประเมินของกลุ่มนั้นจึงใช้เป็นแนวโน้มเท่านั้น`
-          :`สถิติรายผู้ประเมินจึงอ้างอิงผู้ประเมินตัวจริงทั้งหมด`}</div>`
-    : "";
+  const traceNote=irrSourceNote();
   return `<div class="stack">
     ${traceNote}
     <div class="grid g4">
-      ${stat("คู่คะแนนที่วิเคราะห์",A.n.toLocaleString(),"ระดับตัวชี้วัด รอบล่าสุด")}
+      ${stat("คู่คะแนนที่วิเคราะห์",A.n.toLocaleString(),
+        IRR_SRC.mode==="raw"?`ระดับตัวชี้วัด ครบ ${IRR_SRC.rounds} รอบ`:"ระดับตัวชี้วัด รอบล่าสุด")}
       ${stat("ตรงกันพอดี",(A.exact*100).toFixed(1)+"%","ให้ระดับเดียวกัน")}
       ${stat("ต่างกันไม่เกิน 1 ระดับ",(A.within1*100).toFixed(1)+"%","เกณฑ์ที่ยอมรับได้ทั่วไป")}
       ${stat("ส่วนต่างเฉลี่ยสัมบูรณ์",fmt(A.mad),"ยิ่งต่ำยิ่งสอดคล้อง")}
@@ -6538,7 +7073,12 @@ function irrNotes(A){
   return `<div class="stack">
     ${card("วิธีคำนวณ","",
       `<table class="tight"><tbody>
-        <tr><td style="width:230px;color:var(--muted)">หน่วยของข้อมูล</td><td>คู่คะแนนระดับตัวชี้วัด จากรอบประเมินล่าสุด ผู้ประเมินสองฝ่ายต่อนักศึกษาหนึ่งคน</td></tr>
+        <tr><td style="width:230px;color:var(--muted)">หน่วยของข้อมูล</td><td>${IRR_SRC.mode==="raw"
+          ?`ช่องเทียบหนึ่งช่อง = นักศึกษา × ตัวชี้วัด × รอบ อ่านจากระเบียนจริงในชีต Assessments และ AssessmentScores ครบทุกรอบ (${IRR_SRC.rounds} รอบ)`
+          :`คู่คะแนนระดับตัวชี้วัด จากรอบประเมินล่าสุด ผู้ประเมินสองฝ่ายต่อนักศึกษาหนึ่งคน`}</td></tr>
+        <tr><td style="color:var(--muted)">ที่มาของรหัสผู้ประเมิน</td><td>${IRR_SRC.mode==="raw"
+          ?`คอลัมน์ assessor_id ของระเบียนการประเมินแต่ละรายการ เป็นผู้ประเมินตัวจริงที่กดบันทึก`
+          :`อนุมานจากบทบาทในสาขา เพราะยังไม่มีระเบียนดิบมากพอ`}</td></tr>
         <tr><td style="color:var(--muted)">Cohen's weighted kappa</td><td>ใช้น้ำหนักกำลังสอง เหมาะกับมาตรจัดอันดับ 5 ระดับ ให้โทษความต่างมากกว่าตามระยะห่างกำลังสอง</td></tr>
         <tr><td style="color:var(--muted)">ICC</td><td>แบบสองทางสุ่ม (two-way random effects) ประมาณจากค่าเฉลี่ยกำลังสองของ ANOVA</td></tr>
         <tr><td style="color:var(--muted)">การทดสอบความเข้มงวด</td><td>ทดสอบว่าผลต่างเฉลี่ยจากคู่ประเมินต่างจากศูนย์หรือไม่ ใช้การประมาณด้วยการแจกแจงปกติ</td></tr>
@@ -6550,8 +7090,13 @@ function irrNotes(A){
           ผู้ประเมินต่างสาขาจึงไม่มีนักศึกษาร่วมกัน การเทียบกับค่ากลางของคณะจึงปนอยู่กับความสามารถของนักศึกษาที่แต่ละคนดูแล</li>
         <li><b>วิธีแก้ที่ควรทำ</b> คือจัดชุดผลงานตัวอย่างให้ผู้ประเมินทุกคนให้คะแนนชุดเดียวกัน
           ผลที่ได้จะเชื่อมโยงผู้ประเมินทุกคนเข้าด้วยกันและประมาณความเข้มงวดเทียบกับค่ากลางคณะได้จริง</li>
-        <li>ค่าที่คำนวณใช้ข้อมูลรอบล่าสุดเท่านั้น หากต้องการดูแนวโน้มต้องเก็บผลหลายรอบแล้วเปรียบเทียบ</li>
-        <li>ข้อมูลผู้เรียนในต้นแบบนี้เป็นข้อมูลจำลอง ตัวเลขที่ได้ใช้ยืนยันว่ากลไกคำนวณทำงานถูกต้อง ไม่ใช่ข้อสรุปเรื่องคุณภาพการประเมินของคณะ</li>
+        ${IRR_SRC.mode==="raw"
+          ?`<li>ค่าที่คำนวณรวมทุกรอบที่บันทึกไว้ (${IRR_SRC.rounds} รอบ) ช่องเทียบของคนละรอบถือเป็นคนละหน่วยกัน
+              หากต้องการดูแนวโน้มรายรอบ ให้กรองชั้นปีหรือสาขาแล้วเทียบตัวเลขระหว่างขอบเขต</li>
+            <li>ตัวเลขทั้งหมดมาจากผลการประเมินจริงของคณะ ${IRR_SRC.students} คน ไม่ใช่ข้อมูลจำลอง
+              จึงใช้ประกอบการพัฒนาความเข้าใจเกณฑ์ร่วมกันได้ แต่ยังต้องระวังเรื่องขนาดกลุ่มย่อย</li>`
+          :`<li>ค่าที่คำนวณใช้ข้อมูลรอบล่าสุดเท่านั้น หากต้องการดูแนวโน้มต้องเก็บผลหลายรอบแล้วเปรียบเทียบ</li>
+            <li>ยังไม่มีระเบียนดิบมากพอ ตัวเลขที่ได้ใช้ยืนยันว่ากลไกคำนวณทำงานถูกต้อง ไม่ใช่ข้อสรุปเรื่องคุณภาพการประเมินของคณะ</li>`}
         <li>ผลนี้ไม่ควรใช้ประเมินผลการปฏิบัติงานของผู้ประเมินรายบุคคล ควรใช้เพื่อพัฒนาความเข้าใจเกณฑ์ร่วมกัน</li>
       </ul>`)}
   </div>`;
@@ -7255,6 +7800,22 @@ document.addEventListener("click",e=>{
       S.msg="ฝึก "+(EDM_MODELS.find(x=>x.id===v)||{}).name+" เสร็จแล้วใน "+((Date.now()-t0)/1000).toFixed(1)+" วินาที"; break; }
     case "deeptrainall": { const t0=Date.now(); trainDeepAll();
       S.msg="ฝึกโมเดลเชิงลึกทั้งสี่เสร็จแล้วใน "+((Date.now()-t0)/1000).toFixed(1)+" วินาที"; break; }
+    /* ดึงเมทริกซ์การตอบข้อสอบจริงใหม่ ใช้เมื่อมีผู้เข้าสอบเพิ่มระหว่างที่เปิดหน้าไว้ */
+    case "mxreload": { LIVE.mxErr="";
+      loadExamMatrix(true).then(d=>{
+        LIVE.info=d&&d.summary
+          ?`ดึงการตอบข้อสอบจริงแล้ว ${d.summary.answers.toLocaleString()} คำตอบ จากการสอบ ${d.summary.attempts} ครั้ง ของผู้เรียน ${d.summary.tested} คน`
+          :(LIVE.mxErr||"ยังไม่มีผลการสอบจริงในฐานข้อมูล");
+        render();
+      });
+      setMsg("กำลังดึงการตอบข้อสอบจริงจากฐานข้อมูล"); break; }
+    /* ฝึก DeepCDM ด้วยการตอบจริงและ Q-matrix จริงของชั้นปีที่เลือก */
+    case "cdmtrain": { const t0=Date.now(); const r=trainDeepCDM(S.psyYear);
+      S.cdmMsg=r.ok
+        ?`ฝึก DeepCDM เสร็จใน ${((Date.now()-t0)/1000).toFixed(1)} วินาที · AUC ${r.metrics.auc.toFixed(3)} บนชุดทดสอบ`
+        :`ฝึกไม่ได้: ${r.reason}`;
+      break; }
+    case "cdmclear": CDM_FIT=null; S.cdmMsg=""; break;
     case "iqtab": S.iqTab=v; S.iqMsg=""; break;
     case "iqicc": S.iqItem=+v; S.iqTab="irt"; break;
     case "iqmirt": MIRT_CACHE=mirtAnalyze(S.irtModel); break;
@@ -7442,6 +8003,7 @@ document.addEventListener("change",e=>{
     case "setfp": S.fp=val2; S.repView=null; S.repMsg=""; EDM_CACHE=null; S.dxSid=null; S.prgSid=null; break;
     case "irtmodel": S.irtModel=mirtModel(val2); IQ_CACHE={}; MIRT_CACHE=null; break;
     case "iqcomp": S.iqComp=val2; S.iqItem=0; S.iqMsg=""; break;
+    case "difvar": S.difVar=val2; break;
     case "pfaff": case "pfgrp": case "pflvl": case "pfsch": break;
     case "lecscope": S.lecScope=val2; break;
     case "assid": S.asSid=val2; S.asScores={}; S.asComp=null; S.asSaved=false; break;
@@ -7715,6 +8277,8 @@ const LIVE = {
   fwLive   : false,              // กรอบสมรรถนะมาจากเซิร์ฟเวอร์
   fwAt     : 0,                  // เวลาที่ดึงกรอบสมรรถนะครั้งล่าสุด
   fwBusy   : false,              // กำลังดึงกรอบสมรรถนะซ้ำอยู่
+  mxBusy   : false,              // กำลังดึงเมทริกซ์การตอบข้อสอบจริง
+  mxErr    : '',                 // เหตุผลที่ดึงเมทริกซ์ไม่สำเร็จ
   bankLive : false,
   queue    : [],                 // งานเขียนที่ล้มเหลว รอส่งซ้ำ
   intent   : null,
@@ -7930,8 +8494,23 @@ function applyAssessments(sid, d) {
     return out;
   });
 
-  delete RESP[sid]; delete HIST[sid]; delete ASSESS_LOG[sid];
+  delete RESP[sid]; delete HIST[sid]; delete ASSESS_LOG[sid]; delete ASSESS_RAW[sid];
   RATERS.forEach(x => { delete x.store()[sid]; });
+
+  /* เก็บคะแนนดิบไว้ก่อนถูกเฉลี่ยรวม หนึ่งแถวคือผู้ประเมินหนึ่งคนให้คะแนนหนึ่งตัวชี้วัดในหนึ่งรอบ
+     การวิเคราะห์ความสอดคล้องต้องใช้ระดับนี้ เพราะต้องเทียบผู้ประเมินคนต่อคนบนช่องเดียวกัน */
+  const raw = [];
+  sc.forEach(s => {
+    const a = byAsm[s.assess_id]; if (!a) return;
+    const rater = raterByType(a.assess_type); if (!rater) return;
+    const v = Number(s.level_score); if (!isFinite(v)) return;
+    raw.push({assess_id: String(a.assess_id || ''), assessor_id: String(a.assessor_id || ''),
+      rater: rater.key, type: rater.type, group: rater.group,
+      round: Number(a.round_no) || 1, comp_id: String(a.comp_id || ''),
+      ind_id: String(s.ind_id || ''), score: v,
+      date: String(a.assess_date || a.created_at || '').slice(0, 10)});
+  });
+  if (raw.length) ASSESS_RAW[sid] = raw;
   if (list.length) {
     HIST[sid] = list;
     const last = list[list.length - 1];
@@ -8040,6 +8619,8 @@ async function liveHydrate() {
     RATERS.forEach(x => { const st = x.store(); Object.keys(st).forEach(k => delete st[k]); });
     Object.keys(HIST).forEach(k => delete HIST[k]);
     Object.keys(ASSESS_LOG).forEach(k => delete ASSESS_LOG[k]);
+    Object.keys(ASSESS_RAW).forEach(k => delete ASSESS_RAW[k]);
+    EXAM_MX = null; PILOT_SIM = null; DEEP = {}; DEEP_D = null; CDM_FIT = null;
     LIVE.deep.clear(); LIVE.evLoaded.clear();
     EVIDENCE = []; PENDING = [];
 
@@ -8070,6 +8651,11 @@ async function liveHydrate() {
     }
     loaderSet(95, 'เตรียมหน้าจอ');
     render();
+
+    /* 6ก) เมทริกซ์การตอบข้อสอบจริงทั้งคณะ ใช้เป็นข้อมูลตั้งต้นของคุณภาพข้อสอบ DIF
+       แบบจำลองเชิงลึก และ DeepCDM ดึงเบื้องหลังไม่ให้ขวางการเข้าใช้งาน */
+    if (['Administrator', 'Program Chair', 'Dean', 'Lecturer', 'MajorAdvisor'].includes(role))
+      loadExamMatrix().then(() => render());
 
     /* 6) คลังข้อสอบว่างเปล่า ค่อยซิงก์ชุดตั้งต้นทีหลัง ไม่ให้ขวางการเข้าใช้งาน */
     const staff = ['Administrator', 'Program Chair'].includes(role);
