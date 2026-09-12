@@ -141,6 +141,11 @@ a{color:var(--text-soft)}
 .card-h p{font-size:.78rem;color:var(--muted);margin-top:.1rem}
 .card-b{padding:1.05rem}
 .grid{display:grid;gap:1rem}
+/* ลูกของกริดมีค่าตั้งต้น min-width:auto ซึ่งเท่ากับความกว้างน้อยที่สุดของเนื้อหาข้างใน
+   ช่องเลือกที่มีข้อความยาว (เช่น รายชื่อนักศึกษา) จึงดันคอลัมน์ให้กว้างเกินจอ
+   คอลัมน์ยุบตามจอแคบไม่ได้ และทั้งหน้าเลื่อนออกด้านข้าง
+   ตั้งเป็นศูนย์เพื่อให้ยุบได้จริง แล้วให้เนื้อหาข้างในจัดการความกว้างของตนเอง */
+.grid > *{min-width:0}
 .g2{grid-template-columns:repeat(2,1fr)}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g4{grid-template-columns:repeat(4,1fr)}
@@ -206,6 +211,56 @@ tbody tr:last-child td{border-bottom:none}
 .scale-grid button:hover{border-color:var(--text-soft)}
 .scale-grid button.on{background:var(--btn-bg);border-color:var(--btn-bg);color:var(--btn-fg)}
 .scale-grid button b{display:block;font-family:'Noto Serif Thai',serif;font-size:1.05rem}
+
+/* ---------- แบบประเมินทีละตัวชี้วัด ----------
+   เดิมหน้าประเมินวางตัวชี้วัดทั้งหมดต่อกันเป็นพรืด สมรรถนะหนึ่งมีได้ถึงสิบข้อ
+   ผู้ประเมินจึงต้องเลื่อนหน้าจอยาวและหลงว่าให้คะแนนข้อไหนไปแล้วบ้าง
+   แบบใหม่แสดงทีละข้อพร้อมแถบความก้าวหน้า จึงเห็นชัดว่าอยู่ข้อที่เท่าไรและเหลืออีกกี่ข้อ */
+.asw-head{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+.asw-ico{width:2.6rem;height:2.6rem;border-radius:8px;display:grid;place-items:center;flex:none;
+  background:var(--accent-soft);color:var(--accent-fg);font-size:1.25rem}
+.asw-ttl{font-weight:600;font-size:.96rem;line-height:1.3}
+.asw-sub{font-size:.78rem;color:var(--muted);margin-top:.1rem}
+.asw-prog{margin-left:auto;display:flex;align-items:center;gap:.7rem;min-width:min(280px,100%)}
+.asw-bar{flex:1;height:.5rem;border-radius:999px;background:var(--line-soft);overflow:hidden}
+.asw-bar i{display:block;height:100%;border-radius:999px;background:var(--ok);transition:width .25s ease}
+.asw-pct{font-size:.78rem;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+.asw-q{margin-top:1rem;padding:.95rem 1.1rem;border-radius:8px;display:flex;gap:.8rem;align-items:flex-start;
+  background:var(--accent-soft);border:1px solid var(--accent)}
+.asw-q .ic{font-size:1.35rem;line-height:1.2;flex:none}
+.asw-q .tx{font-weight:600;font-size:1rem;line-height:1.55;color:var(--accent-fg)}
+
+.asw-ask{font-size:.85rem;color:var(--text-soft);margin:1rem 0 .5rem}
+.asw-lv{display:grid;gap:.55rem}
+.asw-lv button{position:relative;padding:.9rem .6rem .8rem;border:1.5px solid var(--line);border-radius:8px;
+  background:var(--surface);text-align:center;line-height:1.45;color:var(--text-soft);
+  display:flex;flex-direction:column;align-items:center;gap:.5rem}
+.asw-lv button:hover{border-color:var(--accent);background:var(--line-soft)}
+.asw-lv button .n{width:2.35rem;height:2.35rem;border-radius:50%;display:grid;place-items:center;
+  background:var(--line-soft);color:var(--text-soft);font-family:'Noto Serif Thai',serif;font-size:1.1rem;font-weight:600}
+.asw-lv button .d{font-size:.76rem}
+.asw-lv button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-fg);font-weight:500}
+.asw-lv button.on .n{background:var(--accent);color:#fff}
+.asw-lv button.on::after{content:"✓";position:absolute;top:.4rem;right:.5rem;font-size:.8rem;
+  width:1.15rem;height:1.15rem;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center}
+
+.asw-saved{margin-top:.9rem;padding:.55rem .8rem;border-radius:6px;display:flex;gap:.6rem;flex-wrap:wrap;
+  align-items:center;font-size:.8rem;background:var(--ok-soft,var(--line-soft));border:1px solid var(--line)}
+.asw-saved .far{margin-left:auto;color:var(--muted);font-size:.76rem}
+
+.asw-foot{margin-top:1rem;padding-top:.9rem;border-top:1px solid var(--line-soft);
+  display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
+.asw-foot .mid{margin:0 auto;display:flex;gap:.9rem;flex-wrap:wrap;justify-content:center;
+  font-size:.78rem;color:var(--muted)}
+.asw-dots{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.85rem}
+.asw-dots button{width:1.75rem;height:1.75rem;border-radius:5px;border:1px solid var(--line);
+  background:var(--surface);font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.asw-dots button.ans{background:var(--ok);border-color:var(--ok);color:#fff}
+.asw-dots button.cur{outline:2px solid var(--accent);outline-offset:1px;font-weight:700}
+/* สัดส่วนสองคอลัมน์ของหน้าประเมิน เดิมกำหนดเป็น inline style จึงชนะกฎของจอแคบเสมอ
+   ทำให้บนมือถือยังถูกบีบเป็นสองคอลัมน์และหน้าจอเลื่อนออกด้านข้าง */
+.as-cols{grid-template-columns:1.7fr 1fr;align-items:start}
 
 .picklist{max-height:540px;overflow-y:auto}
 .picklist button{display:block;width:100%;text-align:left;padding:.42rem .68rem;border:none;border-left:3px solid transparent;background:none;font-size:.84rem;line-height:1.4}
@@ -362,6 +417,12 @@ svg.chart{display:block;width:100%;height:auto}
   .stair .stp{margin-left:calc((var(--h) - 1) * .8rem)}
   .stair .blk{min-height:0}
   .stair .mark{align-items:flex-start;margin-bottom:.25rem}
+  /* จอแคบวางตัวเลือกระดับเป็นสองคอลัมน์ ถ้าเรียงห้าช่องในแถวเดียวข้อความจะบีบจนอ่านไม่ออก
+     ใช้ !important เพราะความกว้างของกริดถูกกำหนดจากจำนวนระดับในโค้ดที่วาดหน้าจอ */
+  .asw-lv{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .as-cols{grid-template-columns:1fr}
+  .asw-prog{margin-left:0;width:100%}
+  .asw-foot .mid{margin:.2rem 0;width:100%;justify-content:flex-start}
   .content,.topbar{padding-left:.9rem;padding-right:.9rem}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -1211,6 +1272,9 @@ const S={
   examComp:null, examAns:{}, examItems:[], examAttemptId:null, examDone:false, examQ:0, examBusy:false, examDbSaved:false, pfTab:"info", pfMsg:"", pfErr:"", histRound:"all",
   usrTab:"list", usrFilter:{role:"all",program:"all",year:"all",q:""}, usrEdit:null,
   asSid:null, asComp:null, asType:"lecturer", asScores:{}, asSaved:false,
+  /* แบบประเมินทีละข้อ · asIdx ข้อที่กำลังแสดง · asKey คีย์แบบร่างของชุดที่กำลังประเมิน
+     asDraftAt เวลาบันทึกแบบร่างล่าสุด · asRestored เพิ่งเรียกแบบร่างกลับมาหรือไม่ */
+  asIdx:0, asKey:null, asDraftAt:"", asComment:"", asRestored:false,
   msg:"", err:"", notice:"",
   forgotSent:false, otpUser:null,
   /* ระบบสมัครสมาชิกชุดเดียว ใช้สถานะก้อนเดียวแทนของเดิมที่แยกเป็น reg* กับ stu* คนละชุด */
@@ -3663,6 +3727,44 @@ function assessedPanel(st,comps,mine){
     </tr></thead><tbody>${rows}</tbody></table></div>`,"",false);
 }
 
+/* ---------- แบบร่างการประเมินในเครื่องผู้ใช้ ----------
+   ผู้ประเมินมักให้คะแนนทีละหลายข้อแล้วสลับไปทำอย่างอื่น หรือรีเฟรชหน้าโดยไม่ตั้งใจ
+   ถ้าเก็บคะแนนไว้ในหน่วยความจำอย่างเดียว คะแนนที่ให้ไปแล้วจะหายทั้งหมด
+   จึงบันทึกแบบร่างลง localStorage ทุกครั้งที่กดคะแนน แล้วเรียกกลับเมื่อเปิดหน้าเดิมอีกครั้ง
+   แยกคีย์ตามผู้ประเมิน นักศึกษา สมรรถนะ และประเภทการประเมิน
+   แบบร่างของแต่ละชุดจึงไม่ปนกัน และผู้ประเมินคนอื่นบนเครื่องเดียวกันก็ไม่เห็นของกัน */
+function asDraftKey(){
+  const me=(S.user&&S.user.id)||"anon";
+  return "ptru_as_"+[me,S.asSid||"",S.asComp||"",S.asType||""].join("|");
+}
+function asDraftLoad(){
+  try{ const raw=localStorage.getItem(asDraftKey()); if(!raw) return null;
+    const o=JSON.parse(raw); return (o&&typeof o==="object")?o:null; }catch(e){ return null; }
+}
+function asDraftSave(){
+  try{
+    const el=document.getElementById("as_comment");
+    if(el) S.asComment=el.value;
+    S.asDraftAt=new Date().toISOString();
+    localStorage.setItem(asDraftKey(),JSON.stringify({
+      scores:S.asScores, idx:S.asIdx, at:S.asDraftAt, comment:S.asComment||""}));
+  }catch(e){ /* พื้นที่เก็บเต็มหรือถูกปิด ยังให้ประเมินต่อได้ แต่ไม่มีแบบร่าง */ }
+}
+function asDraftClear(){ try{ localStorage.removeItem(asDraftKey()); }catch(e){} }
+/** เรียกแบบร่างกลับเมื่อชุดที่กำลังประเมินเปลี่ยนไป เรียกซ้ำได้โดยไม่เกิดผลข้างเคียง */
+function asDraftSync(){
+  const k=asDraftKey();
+  if(S.asKey===k) return;
+  S.asKey=k;
+  const d=asDraftLoad();
+  S.asScores=(d&&d.scores&&typeof d.scores==="object")?d.scores:{};
+  S.asIdx=d?Math.max(0,numOr(d.idx,0)):0;
+  S.asDraftAt=(d&&d.at)||"";
+  S.asComment=(d&&d.comment)||"";
+  S.asSaved=false;
+  S.asRestored=!!(d&&Object.keys(S.asScores).length);
+}
+
 function assessPage(){
   const stu=visStudents();
   if(!stu.length) return card("การประเมิน","",`<div class="empty">ยังไม่มีนักศึกษาในระบบ</div>`);
@@ -3674,8 +3776,6 @@ function assessPage(){
   const c=comps.find(x=>x.id===S.asComp), cfg=cfgOf(FW,y,c.id);
   /* สมรรถนะที่บัญชีนี้ประเมินนักศึกษารายนี้ไปแล้วจริง อ่านจากระเบียนในฐานข้อมูล */
   const mine=assessedByMe(st.id);
-  const done=cfg.indicators.length>0&&cfg.indicators.every(i=>S.asScores[i.id]);
-  const result=done?mean(cfg.indicators.map(i=>S.asScores[i.id])):null;
   /* ประเภทการประเมินที่แต่ละบทบาทเลือกได้ ต้องสอดคล้องกับ api_assessSubmit ใน Code.gs
      อาจารย์นิเทศก์แต่ละประเภทบันทึกในช่องทางของตนเอง จึงแยกดูคะแนนรายฝ่ายได้ */
   const allowType=id=>S.role==="Student"?["self","peer"].includes(id)
@@ -3684,14 +3784,16 @@ function assessPage(){
     :S.role==="Lecturer"?id==="lecturer"
     :S.role==="MajorAdvisor"?id==="major":true;
   if(!allowType(S.asType)) S.asType=ASSESS_TYPES.map(([id])=>id).find(allowType)||"lecturer";
+  /* ต้องเรียกหลังจากรู้ตัวนักศึกษา สมรรถนะ และประเภทการประเมินครบแล้ว
+     เพราะคีย์ของแบบร่างประกอบขึ้นจากทั้งสามค่านี้ */
+  asDraftSync();
+  /* คิดความคืบหน้าหลังเรียกแบบร่างกลับแล้ว มิฉะนั้นจะนับจากคะแนนชุดเก่า */
+  const done=cfg.indicators.length>0&&cfg.indicators.every(i=>S.asScores[i.id]);
+  const result=done?mean(cfg.indicators.map(i=>S.asScores[i.id])):null;
   const typeOpts=ASSESS_TYPES.filter(([id])=>allowType(id))
     .map(([id,l])=>`<option value="${id}" ${S.asType===id?"selected":""}>${l}</option>`).join("");
-  const indCards=cfg.indicators.length?cfg.indicators.map((i,n)=>card(esc(i.th),`ตัวชี้วัดที่ ${n+1} จาก ${cfg.indicators.length}`,
-    `<div class="scale-grid" style="grid-template-columns:repeat(${FW.levels.length},1fr)">
-      ${FW.levels.map((l,k)=>`<button class="${S.asScores[i.id]===k+1?"on":""}" data-act="asscore" data-v="${i.id}" data-k="${k+1}">
-        <b>${k+1}</b>${esc(i.descriptors[k]||l.th)}</button>`).join("")}</div>`)).join("")
-    :card("","",`<div class="empty">สมรรถนะนี้ยังไม่มีตัวชี้วัดในชั้นปีนี้</div>`);
-  return `<div class="grid g2" style="grid-template-columns:1.7fr 1fr;align-items:start">
+  const indCards=assessWizard(cfg,done);
+  return `<div class="grid g2 as-cols">
     <div class="stack">
       ${card("แบบประเมินสมรรถนะ",`${yearOf(FW,y).label} · ระยะ${yearOf(FW,y).stage} · เป้าหมายระดับ ${cfg.target}`,
         `<div class="grid g3" style="gap:.7rem">
@@ -3707,10 +3809,9 @@ function assessPage(){
           (ครั้งที่ ${mine[c.id].round} · ให้คะแนน ${mine[c.id].n} ตัวชี้วัด) การบันทึกใหม่จะเป็นการประเมินซ้ำในรอบปัจจุบัน</div>`:""}`)}
       ${assessedPanel(st,comps,mine)}
       ${indCards}
-      ${card("ข้อเสนอแนะเพื่อการพัฒนา","",
-        `<textarea class="inp" rows="4" placeholder="ระบุสิ่งที่ทำได้ดีและสิ่งที่ควรพัฒนา พร้อมข้อเสนอแนะที่นำไปปฏิบัติได้" data-nore></textarea>
-         ${S.asSaved?`<div class="alert alert-ok">บันทึกผลการประเมินแล้ว</div>`:""}
-         <button class="btn btn-primary" ${done?"":"disabled style=opacity:.45"} data-act="assave">${done?"บันทึกผลการประเมิน":"เลือกระดับให้ครบทุกตัวชี้วัด"}</button>`)}
+      ${card("ข้อเสนอแนะเพื่อการพัฒนา","ไม่บังคับ · จะถูกบันทึกไปพร้อมผลการประเมิน",
+        `<textarea class="inp" id="as_comment" rows="4" placeholder="ระบุสิ่งที่ทำได้ดีและสิ่งที่ควรพัฒนา พร้อมข้อเสนอแนะที่นำไปปฏิบัติได้" data-act="ascomment" data-nore>${esc(S.asComment||"")}</textarea>
+         ${S.asSaved?`<div class="alert alert-ok" style="margin-bottom:0">บันทึกผลการประเมินแล้ว</div>`:""}`)}
     </div>
     <div class="stack">
       ${card("สรุปผล","",result===null?`<div class="empty" style="padding:1.4rem 0">ผลจะแสดงเมื่อประเมินครบทุกตัวชี้วัด</div>`:
@@ -3720,6 +3821,83 @@ function assessPage(){
            ${result>=cfg.target?`ถึงระดับเป้าหมายของชั้นปี (${cfg.target})`:`ยังต่ำกว่าระดับเป้าหมายของชั้นปี (${cfg.target})`}</p>`)}
       ${assessAdvice(st,c,result)}
     </div></div>`;
+}
+
+/** แบบประเมินทีละตัวชี้วัด พร้อมแถบความก้าวหน้าและปุ่มเดินหน้าถอยหลัง
+    แสดงครั้งละหนึ่งข้อ ผู้ประเมินจึงอ่านเกณฑ์ได้เต็มตาและไม่หลงว่าให้คะแนนถึงข้อไหนแล้ว
+    ปุ่มถัดไปปิดไว้จนกว่าจะเลือกคะแนนของข้อปัจจุบัน เพื่อกันการข้ามข้อโดยไม่ตั้งใจ
+    ข้อสุดท้ายเปลี่ยนเป็นปุ่มบันทึก ซึ่งเปิดให้กดเมื่อครบทุกข้อเท่านั้น */
+function assessWizard(cfg,done){
+  const inds=cfg.indicators||[];
+  if(!inds.length)
+    return card("แบบประเมินสมรรถนะ","",`<div class="empty">สมรรถนะนี้ยังไม่มีตัวชี้วัดในชั้นปีนี้</div>`);
+
+  const n=inds.length;
+  S.asIdx=clamp(numOr(S.asIdx,0),0,n-1);
+  const idx=S.asIdx, ind=inds[idx];
+  const answered=inds.filter(i=>S.asScores[i.id]).length;
+  const pct=Math.round(answered/n*100);
+  const picked=S.asScores[ind.id];
+  const last=idx===n-1;
+
+  const lv=FW.levels.map((l,k)=>`<button class="${picked===k+1?"on":""}" data-act="asscore"
+      data-v="${ind.id}" data-k="${k+1}" title="${esc(l.th)}">
+      <span class="n">${k+1}</span>
+      <span class="d">${esc(ind.descriptors[k]||l.th)}</span></button>`).join("");
+
+  /* จุดนำทางรายข้อ ใช้ย้อนกลับไปแก้ข้อที่ให้คะแนนไปแล้วได้โดยไม่ต้องกดถอยทีละข้อ */
+  const dots=inds.map((i,k)=>`<button class="${S.asScores[i.id]?"ans":""} ${k===idx?"cur":""}"
+      data-act="asjump" data-k="${k}" title="ตัวชี้วัดที่ ${k+1}${S.asScores[i.id]?" · ให้คะแนนแล้ว":" · ยังไม่ให้คะแนน"}">${k+1}</button>`).join("");
+
+  const saveAt=S.asDraftAt?new Date(S.asDraftAt):null;
+  const savedStrip=picked
+    ? `<div class="asw-saved"><span style="color:var(--ok)">✅</span>
+         <b>บันทึกคำตอบแล้ว (อัตโนมัติ)</b>
+         <span class="far">🕐 บันทึกล่าสุด ${saveAt?esc(thaiDateTime(saveAt)):"เมื่อครู่"}</span></div>`
+    : `<div class="asw-saved" style="background:var(--line-soft)"><span>◻</span>
+         <span>ยังไม่ได้เลือกระดับของตัวชี้วัดนี้</span></div>`;
+
+  const nextBtn=last
+    ? `<button class="btn btn-primary" ${done?"":"disabled style=opacity:.45"} data-act="assave">
+         ${done?"บันทึกผลการประเมิน":`ยังเหลืออีก ${n-answered} ข้อ`}</button>`
+    : `<button class="btn btn-primary" ${picked?"":"disabled style=opacity:.45"} data-act="asnext">ถัดไป →</button>`;
+
+  return card("","",`<div class="asw-head">
+      <div class="asw-ico">📋</div>
+      <div><div class="asw-ttl">แบบประเมินสมรรถนะ</div>
+        <div class="asw-sub">ตัวชี้วัดที่ ${idx+1} จาก ${n}</div></div>
+      <div class="asw-prog">
+        <div class="asw-bar"><i style="width:${pct}%"></i></div>
+        <span class="asw-pct">${answered} / ${n} ข้อ &nbsp;${pct}%</span></div>
+    </div>
+
+    ${S.asRestored?`<div class="alert alert-info" style="margin:.9rem 0 0">
+      เรียกคำตอบที่บันทึกไว้ในเบราว์เซอร์นี้กลับมาแล้ว ${answered} จาก ${n} ข้อ
+      ท่านประเมินต่อจากเดิมได้ทันที</div>`:""}
+
+    <div class="asw-q"><span class="ic">🎯</span><span class="tx">${esc(ind.th)}</span></div>
+
+    <div class="asw-ask">โปรดเลือก ระดับที่ตรงกับความคิดเห็นของท่าน</div>
+    <div class="asw-lv" style="grid-template-columns:repeat(${FW.levels.length},minmax(0,1fr))">${lv}</div>
+
+    ${savedStrip}
+    <div class="asw-dots">${dots}</div>
+
+    <div class="asw-foot">
+      <button class="btn btn-ghost" ${idx>0?"":"disabled style=opacity:.45"} data-act="asprev">← ก่อนหน้า</button>
+      <div class="mid">
+        <span>${answered?"✅":"◻"} ตอบแล้ว ${answered} / ${n} ข้อ</span>
+        <span>🔄 ข้อมูลจะถูกบันทึกอัตโนมัติ</span>
+      </div>
+      ${nextBtn}
+    </div>`);
+}
+
+/** วันเวลาแบบไทยอย่างย่อ ใช้กำกับเวลาที่บันทึกแบบร่างล่าสุด */
+function thaiDateTime(d){
+  const M=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+  const p=x=>String(x).padStart(2,"0");
+  return `${d.getDate()} ${M[d.getMonth()]} ${d.getFullYear()+543} เวลา ${p(d.getHours())}:${p(d.getMinutes())} น.`;
 }
 
 /** ข้อเสนอแนะเชิงลึกสำหรับผู้ประเมิน ขณะกำลังประเมินสมรรถนะหนึ่งของนักศึกษาคนหนึ่ง
@@ -8105,11 +8283,18 @@ document.addEventListener("click",e=>{
     case "runcdm": S.dxCdm=true; break;
 
     /* --- การประเมิน --- */
-    case "asscore": S.asScores[v]=+k; S.asSaved=false; break;
-    /* เลือกสมรรถนะจากตารางสรุปของผู้ประเมิน ทำงานเหมือนเลือกจากกล่องเลือกด้านบน */
-    case "ascomp2": S.asComp=v; S.asScores={}; S.asSaved=false; break;
+    /* ให้คะแนนหนึ่งข้อ บันทึกแบบร่างทันทีทุกครั้ง คะแนนจึงไม่หายแม้รีเฟรชหน้า */
+    case "asscore": S.asScores[v]=+k; S.asSaved=false; S.asRestored=false; asDraftSave(); break;
+    case "asprev": S.asIdx=Math.max(0,numOr(S.asIdx,0)-1); S.asRestored=false; asDraftSave(); break;
+    case "asnext": S.asIdx=numOr(S.asIdx,0)+1; S.asRestored=false; asDraftSave(); break;
+    case "asjump": S.asIdx=Math.max(0,numOr(k,0)); S.asRestored=false; asDraftSave(); break;
+    /* เลือกสมรรถนะจากตารางสรุปของผู้ประเมิน ทำงานเหมือนเลือกจากกล่องเลือกด้านบน
+       ล้างคีย์แบบร่างเพื่อให้ระบบเรียกแบบร่างของสมรรถนะใหม่ขึ้นมาแทน */
+    case "ascomp2": S.asComp=v; S.asKey=null; S.asSaved=false; break;
     case "assave":
       S.asSaved=true;
+      /* บันทึกจริงแล้ว แบบร่างในเครื่องไม่จำเป็นอีก ลบทิ้งกันสับสนกับการประเมินรอบถัดไป */
+      asDraftClear(); S.asKey=null; S.asRestored=false;
       /* โหมดจริงจะมี livePush แจ้งสถานะการบันทึกให้เอง ตรงนี้จึงแจ้งเฉพาะโหมดสาธิต */
       if(!(typeof liveOn==="function"&&liveOn())) toast("✅ บันทึกผลการประเมินแล้ว (โหมดสาธิต ยังไม่เขียนลงฐานข้อมูล)","ok");
       break;
@@ -8201,9 +8386,13 @@ document.addEventListener("change",e=>{
     case "difvar": S.difVar=val2; break;
     case "pfaff": case "pfgrp": case "pflvl": case "pfsch": break;
     case "lecscope": S.lecScope=val2; break;
-    case "assid": S.asSid=val2; S.asScores={}; S.asComp=null; S.asSaved=false; break;
-    case "ascomp": S.asComp=val2; S.asScores={}; S.asSaved=false; break;
-    case "astype": S.asType=val2; break;
+    /* เปลี่ยนชุดที่กำลังประเมิน ล้างคีย์แบบร่างเพื่อให้เรียกแบบร่างของชุดใหม่ขึ้นมา
+       ไม่ต้องล้างคะแนนเอง เพราะ asDraftSync จะตั้งค่าให้ตามแบบร่างของชุดนั้น */
+    case "assid": S.asSid=val2; S.asComp=null; S.asKey=null; S.asSaved=false; break;
+    case "ascomp": S.asComp=val2; S.asKey=null; S.asSaved=false; break;
+    case "astype": S.asType=val2; S.asKey=null; S.asSaved=false; break;
+    /* เก็บข้อเสนอแนะลงแบบร่างด้วย จะได้ไม่หายไปพร้อมกับคะแนนเมื่อรีเฟรชหน้า */
+    case "ascomment": S.asComment=val2; asDraftSave(); re=false; break;
     case "evtype": S.evNew.type=val2; re=false; break;
     case "evsid": S.evSid=val2; S.evErr=""; break;
     case "evfile": {
@@ -9589,7 +9778,11 @@ document.addEventListener('click', e => {
   } else if (a === 'evverify' || a === 'evreject') {
     LIVE.intent = {act: a, id: v, data: {sid: evidenceOwner()}};
   } else if (a === 'assave') {
-    LIVE.intent = {act: a, data: {sid: S.asSid, comp: S.asComp, type: S.asType, scores: Object.assign({}, S.asScores)}};
+    LIVE.intent = {act: a, data: {sid: S.asSid, comp: S.asComp, type: S.asType,
+      scores: Object.assign({}, S.asScores),
+      /* ข้อเสนอแนะที่ผู้ประเมินพิมพ์ไว้ เดิมไม่เคยถูกส่งขึ้นฐานข้อมูลเลย
+         ทั้งที่ชีต Assessments มีคอลัมน์ comment และ api_assessSubmit รับค่านี้อยู่แล้ว */
+      comment: (document.getElementById('as_comment') || {}).value || S.asComment || ''}};
   } else if (a === 'pfsave') {
     const g = id => { const x = document.getElementById(id); return x ? x.value.trim() : ''; };
     LIVE.intent = {act: a, data: {fn: g('pf_fn'), ln: g('pf_ln'), email: g('pf_em'), tel: g('pf_tel'),
@@ -9687,7 +9880,8 @@ document.addEventListener('click', e => {
       if (!d.sid || !d.comp || !Object.keys(d.scores).length) break;
       const type = d.type || (S.role === 'Mentor' ? 'mentor' : 'lecturer');
       livePush('assess.submit', {student_id: d.sid, comp_id: d.comp, assess_type: type,
-        scores: d.scores, round_no: liveRound(d.sid), term_id: LIVE_CFG.term},
+        scores: d.scores, comment: d.comment || '',
+        round_no: liveRound(d.sid), term_id: LIVE_CFG.term},
         'บันทึกผลการประเมินลงฐานข้อมูลแล้ว',
         async () => { await liveStudent(d.sid, false); EDM_CACHE = null; });
       break;
