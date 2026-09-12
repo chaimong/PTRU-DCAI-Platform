@@ -431,6 +431,11 @@ function grmEAP(items){
   return {theta:th, se:Math.sqrt(v), rel:1-v};
 }
 /** สอบเทียบเบื้องต้นด้วยวิธี normal-ogive (Thurstone) */
+/** ประมาณพารามิเตอร์ GRM เบื้องต้นด้วยวิธี normal-ogive (Thurstone)
+    totals ต้องเป็น "คะแนนรวมที่หักตัวชี้วัดข้อนี้ออกแล้ว" (rest score) ไม่ใช่คะแนนรวมทั้งหมด
+    ถ้าใช้คะแนนรวมที่มีข้อนี้อยู่ด้วย ข้อนั้นจะสหสัมพันธ์กับตัวเองผ่านผลรวม (part-whole)
+    ค่า a จะถูกดันจนชนเพดานเกือบทุกข้อ โดยเฉพาะเมื่อกลุ่มตัวอย่างเล็ก
+    ทำให้ทุกตัวชี้วัดดูมีอำนาจจำแนกสูงสุดเท่ากันหมด ซึ่งไม่มีความหมายทางการวัด */
 function calibrateGRM(col,totals,K){
   const b=[], n=col.length;
   for(let k=1;k<K;k++) b.push(clamp(probit(1-col.filter(x=>x>=k).length/n),-3,3));
@@ -438,8 +443,11 @@ function calibrateGRM(col,totals,K){
   const mx=mean(col), mt=mean(totals), sx=sdev(col)||1, st=sdev(totals)||1;
   const cov=mean(col.map((v,i)=>(v-mx)*(totals[i]-mt)));
   const r=clamp(cov/(sx*st),.05,.95);
-  return {a:+clamp((r/Math.sqrt(1-r*r))*1.7,.4,3).toFixed(2), b:b.map(v=>+v.toFixed(2))};
+  return {a:+clamp((r/Math.sqrt(1-r*r))*1.7,.4,3).toFixed(2), b:b.map(v=>+v.toFixed(2)), r:+r.toFixed(3)};
 }
+/* กลุ่มตัวอย่างขั้นต่ำสำหรับสอบเทียบ ต่ำกว่านี้ค่าที่ได้ไม่มีความหมายทางการวัด
+   ตำราแนะนำหลักร้อยสำหรับ GRM ค่านี้จึงเป็นเพียงขั้นต่ำที่ยอมให้ลองดูได้เท่านั้น */
+const CAL_MIN_N=10, CAL_GOOD_N=30;
 
 /* ---------- 3. G-DINA รูปแบบ additive ---------- */
 function gdinaP(it,alpha){
@@ -2106,13 +2114,33 @@ function psyPage(){
   } else body=deepPanel(y);
   return `<div class="stack">${filterBar("ตัวกรองนี้ใช้กับกลุ่มผู้เรียนที่นำมาสอบเทียบพารามิเตอร์")}
     ${yearStrip(y,"setpsyyear",`${list.length} ตัวชี้วัดที่เปิดใช้ในชั้นปีนี้`)}
-    <div class="notebox">พารามิเตอร์แยกอิสระตามชั้นปี เนื่องจากตัวชี้วัดของแต่ละชั้นปีเป็นคนละชุดกัน
-      ${S.psyTab==="deep"
-        ?`แท็บ DeepCDM ฝึกจากการตอบข้อสอบจริงในฐานข้อมูล ส่วนพารามิเตอร์ IRT, Q-matrix และ G-DINA ในแท็บอื่นเป็นค่าตั้งต้นที่ตั้งไว้ ต้องสอบเทียบก่อนนำไปใช้ตัดสิน`
-        :`ค่าทั้งหมดเป็นค่าตั้งต้น ยังไม่ได้สอบเทียบกับข้อมูลผู้เรียนจริง ก่อนนำผลไปใช้ตัดสินผู้เรียนต้องสอบเทียบและตรวจความกลมกลืนของโมเดลก่อนเสมอ`}</div>
+    ${psySourceNote(y)}
     ${S.msg?`<div class="alert alert-info" style="margin-top:0">${esc(S.msg)}</div>`:""}
     <div class="tabs">${tabs}</div>${body}</div>`;
 }
+/** แจ้งว่าพารามิเตอร์ของชั้นปีนี้สอบเทียบจากข้อมูลจริงแล้วหรือยัง และมีข้อมูลพร้อมเท่าใด
+    แท็บ DeepCDM มีป้ายบอกที่มาของตัวเองอยู่แล้ว จึงไม่ต้องซ้ำ */
+function psySourceNote(y){
+  if(S.psyTab==="deep") return "";
+  const r=psyReady(y), c=r.cal;
+  if(c) return `<div class="alert ${c.weak||c.railed?"alert-warn":"alert-ok"}" style="margin-top:0">
+    <b>สอบเทียบจาก${esc(c.src)}แล้ว</b> เมื่อ ${esc(String(c.at).slice(0,16).replace("T"," "))}
+    · ${c.n} ตัวชี้วัด จากผู้เรียน ${c.cohort} คน${c.skipped?` · ข้าม ${c.skipped} ตัวชี้วัดที่ข้อมูลยังไม่ครบ`:""}
+    ${c.railed?`<br>มี ${c.railed} ตัวชี้วัดที่ค่าอำนาจจำแนกชนขอบ (0.4 หรือ 3.0) แปลว่ากลุ่มตัวอย่างยังเล็กเกินกว่าจะแยกความต่างระหว่างข้อได้`:""}
+    ${c.weak?`<br>ผู้เรียนยังไม่ถึง ${CAL_GOOD_N} คน ค่าที่ได้ยังไม่เสถียร ใช้ดูแนวโน้มได้แต่ยังไม่ควรใช้ตัดสินผู้เรียน`:""}
+    <br>พารามิเตอร์แยกอิสระตามชั้นปี เนื่องจากตัวชี้วัดของแต่ละชั้นปีเป็นคนละชุดกัน
+    ยังต้องตรวจความกลมกลืนของโมเดลก่อนนำผลไปใช้ตัดสินผู้เรียน</div>`;
+  return `<div class="alert ${r.full>=3&&r.cohort>=5?"alert-info":"alert-warn"}" style="margin-top:0">
+    <b>ยังไม่ได้สอบเทียบกับข้อมูลผู้เรียนจริง</b> ค่าที่แสดงเป็นค่าตั้งต้นของระบบ
+    <br>ข้อมูลจริงที่พร้อมสอบเทียบในชั้นปีนี้ · ผู้เรียน ${r.cohort} คน
+    · ตัวชี้วัดที่ทุกคนถูกประเมินครบ ${r.full} จาก ${r.inds} ข้อ
+    · คะแนนรายตัวชี้วัดในฐานข้อมูล ${r.scored.toLocaleString()} รายการ
+    ${r.cohort>=CAL_MIN_N&&r.full>=3
+      ? `<br>กดปุ่ม "สอบเทียบอัตโนมัติจากข้อมูลชั้นปีนี้" ที่ท้ายตารางเพื่อใช้ค่าจากข้อมูลจริง`
+      : `<br>ต้องมีผู้เรียนอย่างน้อย ${CAL_MIN_N} คน และตัวชี้วัดที่ทุกคนถูกประเมินครบอย่างน้อย 3 ข้อ จึงจะสอบเทียบได้
+         · ตัวชี้วัดที่ยังมีผู้เรียนบางคนไม่ถูกประเมินจะถูกข้าม เพราะคำนวณค่าความยากไม่ได้`}</div>`;
+}
+
 function deepPanel(y,focusSid){
   const comps=activeComps(FW,y), K=comps.length;
   const ready=cdmData(y);
@@ -4574,50 +4602,91 @@ const DIM=12, SEQLEN=30;
     ถ้าปล่อยให้มีช่องว่าง ข้อที่ไม่ได้ทำจะถูกนับเป็นตอบผิดและทำให้ผลเพี้ยน
     เมื่อข้อมูลจริงยังไม่พอจึงถอยไปใช้ชุดจำลอง พร้อมระบุที่มาไว้บนหน้าจอทุกแท็บ */
 let PILOT_SIM=null, SEQ_SRC={mode:"sim",n:0,minLen:0};
-/* ขั้นต่ำที่ยอมให้ฝึกด้วยข้อมูลจริง ต่ำกว่านี้ค่าที่วัดได้จะแกว่งจนไม่มีความหมาย */
-const SEQ_REAL_MIN_SEQ=60, SEQ_REAL_MIN_LEN=8;
+/* ขั้นต่ำที่ยอมให้ฝึกด้วยข้อมูลจริง ต่ำกว่านี้ค่าที่วัดได้จะแกว่งจนไม่มีความหมาย
+   ตั้งให้สอดคล้องกับปริมาณข้อมูลที่คณะมีจริง ไม่ใช่ตัวเลขในอุดมคติ
+   เพราะถ้าตั้งสูงเกินไป ระบบจะถอยไปใช้ชุดจำลองตลอดทั้งที่มีข้อมูลจริงอยู่แล้ว */
+const SEQ_REAL_MIN_SEQ=24, SEQ_REAL_MIN_LEN=6, SEQ_MIN_TEST_STU=2;
 
 /** ลำดับการตอบจริงจากเมทริกซ์ทั้งคณะ หนึ่งลำดับ = การสอบหนึ่งครั้งของผู้เรียนหนึ่งคน */
 function realSeqs(){
-  if(!EXAM_MX||!Array.isArray(EXAM_MX.responses)||!EXAM_MX.responses.length) return null;
+  if(!EXAM_MX||!Array.isArray(EXAM_MX.responses)||!EXAM_MX.responses.length)
+    return {seqs:[],N:0,enough:false,why:"ยังไม่ได้ดึงเมทริกซ์การตอบข้อสอบจากฐานข้อมูล"};
   const idxOf=new Map(BANK.map((it,j)=>[String(it.id),j]));
   const ci={}; FW.competencies.forEach((c,k)=>ci[c.id]=k);
   const byStu={}, seqs=[];
+  let dropShort=0, dropUnknown=0;
   EXAM_MX.responses.forEach(r=>{
     const its=[], ys=[];
     r.items.forEach((iid,k)=>{
       const j=idxOf.get(String(iid));
-      if(j===undefined) return;                 // ข้อที่ถูกลบออกจากคลังแล้ว
+      if(j===undefined){ dropUnknown++; return; }   // ข้อที่ถูกลบออกจากคลังแล้ว
       its.push(j); ys.push(r.correct[k]?1:0);
     });
-    if(its.length<SEQ_REAL_MIN_LEN) return;
+    if(its.length<SEQ_REAL_MIN_LEN){ dropShort++; return; }
     const sid=String(r.student_id);
     if(byStu[sid]===undefined) byStu[sid]=Object.keys(byStu).length;
     seqs.push({e:byStu[sid], sid, ci:ci[r.comp_id]!==undefined?ci[r.comp_id]:0,
       items:its, y:ys, at:r.at});
   });
-  if(seqs.length<SEQ_REAL_MIN_SEQ) return {seqs,N:Object.keys(byStu).length,enough:false};
-  return {seqs,N:Object.keys(byStu).length,enough:true,
-          minLen:Math.min(...seqs.map(s=>s.items.length))};
+  const N=Object.keys(byStu).length;
+  const base={seqs,N,dropShort,dropUnknown};
+  if(seqs.length<SEQ_REAL_MIN_SEQ)
+    return {...base,enough:false,
+      why:`มีลำดับการสอบที่ยาวพอ ${seqs.length} ลำดับ ต้องมีอย่างน้อย ${SEQ_REAL_MIN_SEQ} ลำดับ`};
+  if(N<SEQ_MIN_TEST_STU+2)
+    return {...base,enough:false,why:`มีผู้สอบเพียง ${N} คน แบ่งชุดทดสอบแยกผู้สอบไม่ได้`};
+  return {...base,enough:true};
+}
+
+/** เลือกความยาวลำดับที่ให้ข้อมูลใช้ได้มากที่สุด
+    โครงข่ายในระบบนี้ประมวลผลเป็นก้อนความยาวคงที่ ทุกลำดับจึงต้องยาวเท่ากัน
+    ถ้าตัดตามลำดับที่สั้นที่สุด การสอบชุดยาวจะถูกทิ้งข้อมูลไปเกือบหมดเพราะมีชุดสั้นปนอยู่ชุดเดียว
+    จึงไล่ดูทุกความยาวที่เป็นไปได้ แล้วเลือกความยาวที่ได้ (จำนวนลำดับ × ความยาว) มากที่สุด
+    โดยยังต้องเหลือลำดับไม่น้อยกว่าขั้นต่ำและมีผู้สอบพอแบ่งชุดทดสอบ */
+function pickSeqLen(seqs){
+  const lens=Array.from(new Set(seqs.map(s=>s.items.length))).sort((a,b)=>a-b);
+  let best=null;
+  lens.forEach(L0=>{
+    const L=Math.min(SEQLEN,L0);
+    if(L<SEQ_REAL_MIN_LEN) return;
+    const keep=seqs.filter(s=>s.items.length>=L);
+    if(keep.length<SEQ_REAL_MIN_SEQ) return;
+    if(new Set(keep.map(s=>s.sid)).size<SEQ_MIN_TEST_STU+2) return;
+    const score=keep.length*L;
+    if(!best||score>best.score) best={L,keep,score};
+  });
+  return best;
 }
 
 function seqData(limitTrain,limitTest){
   const real=realSeqs();
-  if(real&&real.enough){
-    /* ตัดทุกลำดับให้ยาวเท่ากันที่ความยาวสั้นที่สุดที่พบ แต่ไม่เกิน SEQLEN
-       เพราะโครงข่ายในระบบนี้ประมวลผลเป็นก้อนที่มีความยาวคงที่ */
-    const L=Math.min(SEQLEN,Math.max(SEQ_REAL_MIN_LEN,real.minLen));
-    const all=real.seqs.map(s=>({e:s.e,ci:s.ci,sid:s.sid,
-      items:s.items.slice(0,L),y:s.y.slice(0,L)}));
-    const rng=lcg(555);
-    for(let i=all.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=all[i]; all[i]=all[j]; all[j]=t; }
-    /* แบ่งตามผู้สอบ ไม่ใช่ตามลำดับ ผู้สอบในชุดทดสอบจึงไม่ปรากฏในชุดฝึกเลย */
-    const cutE=Math.max(1,Math.floor(real.N*0.8));
-    const tr=all.filter(s=>s.e<cutE).slice(0,limitTrain||900);
-    const te=all.filter(s=>s.e>=cutE).slice(0,limitTest||250);
-    if(tr.length>=20&&te.length>=5){
-      SEQ_SRC={mode:"real",n:all.length,minLen:L,students:real.N,len:L};
-      return {tr,te,V:BANK.length,N:real.N,len:L,real:true};
+  if(real.enough){
+    const pick=pickSeqLen(real.seqs);
+    if(pick){
+      const L=pick.L;
+      const all=pick.keep.map(s=>({e:s.e,ci:s.ci,sid:s.sid,
+        items:s.items.slice(0,L),y:s.y.slice(0,L)}));
+      /* แบ่งตามผู้สอบ ไม่ใช่ตามลำดับ ผู้สอบในชุดทดสอบจึงไม่ปรากฏในชุดฝึกเลย
+         สุ่มเลือกว่าผู้สอบคนใดไปอยู่ชุดทดสอบ แทนการตัดตามลำดับที่พบในฐานข้อมูล
+         เพราะลำดับในฐานข้อมูลเรียงตามเวลาสอบ การตัดท้ายจะได้เฉพาะผู้ที่สอบทีหลัง */
+      const ids=Array.from(new Set(all.map(s=>s.sid)));
+      const rng=lcg(555);
+      for(let i=ids.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=ids[i]; ids[i]=ids[j]; ids[j]=t; }
+      const nTe=Math.max(SEQ_MIN_TEST_STU,Math.round(ids.length*0.2));
+      const teSet=new Set(ids.slice(0,nTe));
+      for(let i=all.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=all[i]; all[i]=all[j]; all[j]=t; }
+      const tr=all.filter(s=>!teSet.has(s.sid)).slice(0,limitTrain||900);
+      const te=all.filter(s=>teSet.has(s.sid)).slice(0,limitTest||250);
+      if(tr.length>=12&&te.length>=3){
+        SEQ_SRC={mode:"real",n:all.length,minLen:L,len:L,
+          students:ids.length,trStu:ids.length-teSet.size,teStu:teSet.size,
+          fromAttempts:real.seqs.length,dropShort:real.dropShort,dropUnknown:real.dropUnknown,
+          answers:all.length*L};
+        return {tr,te,V:BANK.length,N:real.N,len:L,real:true};
+      }
+      real.why=`แบ่งชุดฝึกกับชุดทดสอบแล้วเหลือลำดับไม่พอ (ฝึก ${tr.length} ทดสอบ ${te.length})`;
+    } else {
+      real.why=`ไม่มีความยาวลำดับใดที่มีการสอบครบ ${SEQ_REAL_MIN_SEQ} ชุดพร้อมกัน`;
     }
   }
   const P=PILOT_SIM||(PILOT_SIM=buildPilot()), all=[];
@@ -4635,7 +4704,9 @@ function seqData(limitTrain,limitTest){
   const te=all.filter(s=>s.e>=cutE).slice(0,limitTest||250);
   SEQ_SRC={mode:"sim",n:all.length,minLen:SEQLEN,
     students:P.resp.length,len:SEQLEN,
-    have:real?real.seqs.length:0,need:SEQ_REAL_MIN_SEQ};
+    have:real?real.seqs.length:0,need:SEQ_REAL_MIN_SEQ,
+    why:(real&&real.why)||"",
+    dropShort:(real&&real.dropShort)||0, dropUnknown:(real&&real.dropUnknown)||0};
   return {tr,te,V:BANK.length,N:P.resp.length,len:SEQLEN,real:false};
 }
 function aucOf(y,p){
@@ -5221,6 +5292,27 @@ let CDM_FIT=null;
 const CDM_MIN_RESP=200;      // จำนวนคำตอบรายข้อขั้นต่ำที่ยอมให้ฝึก
 const CDM_MIN_STUDENT=20;    // จำนวนผู้สอบขั้นต่ำ
 
+/** ประวัติการสอบเทียบพารามิเตอร์รายชั้นปี ใช้บอกว่าค่าที่แสดงมาจากข้อมูลจริงชุดใด
+    เดิมหน้าจอเขียนว่า "ยังไม่ได้สอบเทียบ" ตลอด แม้ผู้ดูแลจะกดสอบเทียบด้วยข้อมูลจริงไปแล้ว */
+const PSY_CAL={};
+
+/** บันทึกพารามิเตอร์ที่สอบเทียบใหม่ของทั้งชั้นปีลงฐานข้อมูล
+    ถ้าไม่บันทึก ค่าที่สอบเทียบจะหายเมื่อรีเฟรชหน้า และผู้ประเมินคนอื่นจะไม่เห็นค่าชุดเดียวกัน */
+function saveIndSet_allComps(y){
+  if(typeof liveOn!=="function"||!liveOn()) return;
+  FW.competencies.forEach(c=>{ if(cfgOf(FW,y,c.id).indicators.length) saveIndSet(y,c.id); });
+}
+
+/** ปริมาณข้อมูลจริงที่ใช้สอบเทียบได้ในชั้นปีหนึ่ง ใช้บอกความพร้อมก่อนกดปุ่ม */
+function psyReady(y){
+  const cohort=filteredStudents().filter(s=>s.year===y);
+  const list=allInds(FW,y);
+  const full=list.filter(i=>cohort.length&&cohort.every(s=>(RESP[s.id]||{})[i.id]!==undefined)).length;
+  const scored=Object.keys(ASSESS_RAW).reduce((n,k)=>n+ASSESS_RAW[k].filter(r=>{
+    const u=userById(k); return u&&u.year===y; }).length,0);
+  return {cohort:cohort.length, inds:list.length, full, scored, cal:PSY_CAL[y]||null};
+}
+
 /** ข้อมูลตั้งต้นของ DeepCDM: คำตอบรายข้อจริง พร้อม Q-matrix จริงของแต่ละข้อ
     Q-matrix ของข้อสอบมาจากสมรรถนะที่ข้อนั้นสังกัด ซึ่งเป็นโครงสร้าง between-item
     ตรงกับโมเดล MIRT ที่ระบบใช้อยู่ จึงตีความผลร่วมกันได้ */
@@ -5387,20 +5479,23 @@ function seqSourceCard(){
   return card("ข้อมูลที่ใช้ฝึก",real?"ใช้การสอบจริงจากฐานข้อมูล":"ยังไม่มีการสอบจริงมากพอ",
     `<div class="alert ${real?"alert-ok":"alert-warn"}" style="margin-top:0">
       ${real
-        ?`<b>ฝึกจากการสอบจริง</b> ${s.n.toLocaleString()} ลำดับ จากผู้สอบ ${s.students} คน ความยาวลำดับละ ${s.len} ข้อ
-           อ่านจากชีต ExamAttempts และ ExamAnswers ผ่านคำสั่ง exam.matrix`
-        :`<b>ยังใช้ชุดจำลอง</b> ขณะนี้มีลำดับการสอบจริงที่ยาวพอเพียง ${s.have||0} ลำดับ
-           ต้องมีอย่างน้อย ${s.need||SEQ_REAL_MIN_SEQ} ลำดับ (ลำดับละไม่ต่ำกว่า ${SEQ_REAL_MIN_LEN} ข้อ)
-           ระบบจึงฝึกจากการตอบที่จำลองจากโมเดล M4PL ตามพารามิเตอร์จริงของข้อสอบ
+        ?`<b>✅ ฝึกจากการสอบจริง</b> ${s.n.toLocaleString()} ลำดับ จากผู้สอบ ${s.students} คน ความยาวลำดับละ ${s.len} ข้อ
+           (รวม ${(s.answers||0).toLocaleString()} คำตอบ) อ่านจากชีต ExamAttempts และ ExamAnswers ผ่านคำสั่ง exam.matrix
+           ${s.dropShort?`<br>ข้ามการสอบที่สั้นเกินไป ${s.dropShort} ชุด เพราะลำดับต้องยาวเท่ากันทุกชุด`:""}`
+        :`<b>ยังใช้ชุดจำลอง</b> ${esc(s.why||`มีลำดับการสอบจริงที่ยาวพอเพียง ${s.have||0} ลำดับ ต้องมีอย่างน้อย ${s.need||SEQ_REAL_MIN_SEQ} ลำดับ`)}
+           ${s.dropUnknown?`<br>มีคำตอบ ${s.dropUnknown} รายการที่อ้างข้อสอบซึ่งไม่มีในคลังแล้ว จึงใช้ไม่ได้`:""}
+           <br>ระบบจึงฝึกจากการตอบที่จำลองจากโมเดล M4PL ตามพารามิเตอร์จริงของข้อสอบ
            ค่าที่ได้ใช้ยืนยันว่ากลไกการฝึกทำงานถูกต้อง แต่ยังไม่ใช่พฤติกรรมการเรียนรู้ของผู้เรียนจริง
            ระบบจะเปลี่ยนเป็นข้อมูลจริงอัตโนมัติเมื่อมีผู้เข้าสอบครบตามจำนวน`}
       ${LIVE.mxErr?`<br><span style="color:var(--warn)">${esc(LIVE.mxErr)}</span>`:""}
      </div>
      <table class="tight"><tbody>
       <tr><td style="width:230px;color:var(--muted)">ลำดับการตอบ</td><td>${real
-        ?`การสอบหนึ่งครั้งของผู้เรียนหนึ่งคน ตัดให้ยาวเท่ากันที่ ${s.len} ข้อแรก`
+        ?`การสอบหนึ่งครั้งของผู้เรียนหนึ่งคน ตัดให้ยาวเท่ากันที่ ${s.len} ข้อแรก
+          · ระบบเลือกความยาวนี้เพราะให้จำนวนคำตอบที่ใช้ได้มากที่สุด`
         :`ผู้สอบหนึ่งคนต่อหนึ่งสมรรถนะ ความยาว ${s.len} ข้อ`}</td></tr>
-      <tr><td style="color:var(--muted)">การแบ่งข้อมูล</td><td>แบ่งตามผู้สอบ 80 ต่อ 20 ผู้สอบในชุดทดสอบไม่ปรากฏในชุดฝึก</td></tr>
+      <tr><td style="color:var(--muted)">การแบ่งข้อมูล</td><td>แบ่งตามผู้สอบ 80 ต่อ 20 ผู้สอบในชุดทดสอบไม่ปรากฏในชุดฝึก
+        ${real&&s.trStu?` · ผู้สอบชุดฝึก ${s.trStu} คน ชุดทดสอบ ${s.teStu} คน`:""}</td></tr>
       <tr><td style="color:var(--muted)">งานที่ทำนาย</td><td>ความน่าจะเป็นที่จะตอบข้อถัดไปถูก จากประวัติการตอบก่อนหน้า</td></tr>
       <tr><td style="color:var(--muted)">ที่มาของข้อมูล</td><td>${real
         ?`ชีต ExamAnswers ของคณะ · ${EXAM_MX&&EXAM_MX.summary?EXAM_MX.summary.answers.toLocaleString():"—"} คำตอบรายข้อ`
@@ -5753,8 +5848,11 @@ function dataSourceBar(){
     <b>ที่มาของข้อมูลบนหน้านี้</b><br>
     ${chip(nAsm>0,"ผลการประเมินจริง",nAsm?`${nAsm.toLocaleString()} คะแนนรายตัวชี้วัด · นักศึกษา ${nStu} คน`:"ยังไม่มี")}
     ${chip(!!(mx&&mx.answers),"การตอบข้อสอบจริง",mx&&mx.answers?`${mx.answers.toLocaleString()} คำตอบ · ผู้สอบ ${mx.tested} คน`:"ยังไม่มีผู้เข้าสอบ")}
-    ${chip(SEQ_SRC.mode==="real","ลำดับการตอบสำหรับโมเดลเชิงลึก",SEQ_SRC.mode==="real"?`${SEQ_SRC.n} ลำดับ`:"ยังใช้ชุดจำลอง")}
-    ${LIVE.mxErr?`<div style="color:var(--warn);margin-top:.4rem">${esc(LIVE.mxErr)}</div>`:""}</div>`;
+    ${chip(SEQ_SRC.mode==="real","ลำดับการตอบสำหรับโมเดลเชิงลึก",
+      SEQ_SRC.mode==="real"?`${SEQ_SRC.n} ลำดับ · ลำดับละ ${SEQ_SRC.len} ข้อ`:"ยังใช้ชุดจำลอง")}
+    ${LIVE.mxBusy?`<div class="sub" style="margin-top:.4rem">กำลังดึงการตอบข้อสอบจริงจากฐานข้อมูล…</div>`:""}
+    ${LIVE.mxErr?`<div style="color:var(--warn);margin-top:.4rem">${esc(LIVE.mxErr)}</div>`:""}
+    ${!EXAM_MX&&!LIVE.mxBusy?`<div style="margin-top:.5rem"><button class="btn btn-ghost btn-sm" data-act="mxreload">ดึงการตอบข้อสอบจริงจากฐานข้อมูล</button></div>`:""}</div>`;
 }
 
 /* ---------- หน้า Educational Data Mining ---------- */
@@ -7673,6 +7771,10 @@ document.addEventListener("click",e=>{
        ผู้ประเมินที่เปิดค้างไว้จึงเห็นสมรรถนะตามที่ผู้ดูแลเพิ่งเปิดหรือปิด โดยไม่ต้องเข้าระบบใหม่ */
     case "nav": S.page=v; S.msg=""; S.err=""; S.usrEdit=null;
       if(["assess","progress","dashboard","students","myladder","exam","diagnostic","analytics"].includes(v)) refreshFramework();
+      /* หน้าที่วิเคราะห์ด้วยแบบจำลอง ต้องมีเมทริกซ์การตอบข้อสอบจริงก่อนจึงจะใช้ข้อมูลจริงได้
+         ดึงตอนเปิดหน้าด้วย เผื่อการดึงเบื้องหลังตอนเข้าสู่ระบบยังไม่เสร็จหรือล้มเหลว */
+      if(["edm","xai","itemq","psychometrics","irr","diagnostic"].includes(v)&&!EXAM_MX)
+        loadExamMatrix().then(d=>{ if(d) render(); });
       break;
 
     /* --- ผู้ใช้งาน --- */
@@ -7817,14 +7919,31 @@ document.addEventListener("click",e=>{
       setMsg("สร้าง Q-matrix ของชั้นปีนี้โดยผูกตัวชี้วัดกับสมรรถนะต้นสังกัด หากตัวชี้วัดใดต้องใช้หลายคุณลักษณะ กรุณาเพิ่มการเชื่อมโยงด้วยตนเอง"); break; }
     case "psycal": {
       const y=S.psyYear, list=allInds(FW,y), cohort=filteredStudents().filter(s=>s.year===y);
-      if(cohort.length<2){setMsg("ชั้นปีนี้มีผู้เรียนไม่พอสำหรับการสอบเทียบ");break;}
+      if(cohort.length<CAL_MIN_N){
+        setMsg(`ชั้นปีนี้มีผู้เรียน ${cohort.length} คน ยังไม่พอสำหรับการสอบเทียบ ต้องมีอย่างน้อย ${CAL_MIN_N} คน `
+          +`· การประมาณจากกลุ่มเล็กกว่านี้จะได้ค่าอำนาจจำแนกชนเพดานเกือบทุกข้อ ซึ่งไม่มีความหมายทางการวัด`);
+        break; }
       const totals=cohort.map(s=>list.map(i=>(RESP[s.id]||{})[i.id]).filter(x=>x!==undefined).reduce((a,b)=>a+b,0));
-      let n=0;
+      let n=0, skipped=0, railed=0;
       FW.competencies.forEach(c=>{ const cf=cfgOf(FW,y,c.id);
         cf.indicators.forEach(i=>{ const col=cohort.map(s=>(RESP[s.id]||{})[i.id]);
-          if(col.some(x=>x===undefined)) return; n++;
-          i.irt=calibrateGRM(col.map(x=>x-1),totals,FW.levels.length); }); });
-      setMsg(`สอบเทียบ ${n} ตัวชี้วัดของชั้นปีที่ ${y} จากผู้เรียน ${cohort.length} คน ด้วยวิธี normal-ogive (Thurstone) ซึ่งเป็นการประมาณเบื้องต้น ควรสอบเทียบซ้ำด้วย MML-EM เมื่อมีข้อมูลจริงเพียงพอ`); break; }
+          if(col.some(x=>x===undefined)){ skipped++; return; } n++;
+          /* หักคะแนนของตัวชี้วัดข้อนี้ออกจากคะแนนรวมก่อนหาสหสัมพันธ์
+             มิฉะนั้นข้อนั้นจะสหสัมพันธ์กับตัวเองผ่านผลรวม แล้วค่า a จะชนเพดานทุกข้อ */
+          const rest=totals.map((t,k)=>t-col[k]);
+          i.irt=calibrateGRM(col.map(x=>x-1),rest,FW.levels.length);
+          if(i.irt.a>=2.99||i.irt.a<=0.41) railed++; }); });
+      /* บันทึกไว้ว่าสอบเทียบจากข้อมูลจริงชุดใด เมื่อใด หน้าจอจะได้เลิกบอกว่า "ยังไม่ได้สอบเทียบ"
+         และผู้อ่านรายงานตรวจย้อนได้ว่าพารามิเตอร์ชุดนี้มาจากผู้เรียนกี่คน */
+      PSY_CAL[y]={at:new Date().toISOString(),n,skipped,railed,cohort:cohort.length,
+        weak:cohort.length<CAL_GOOD_N,
+        src:LIVE.fwLive?"ผลการประเมินจริงในฐานข้อมูล":"ข้อมูลจำลองในโหมดสาธิต"};
+      if(n) saveIndSet_allComps(y);
+      setMsg(`สอบเทียบ ${n} ตัวชี้วัดของชั้นปีที่ ${y} จากผู้เรียน ${cohort.length} คน ด้วยวิธี normal-ogive (Thurstone) ซึ่งเป็นการประมาณเบื้องต้น`
+        +(skipped?` · ข้าม ${skipped} ตัวชี้วัดที่ยังมีผู้เรียนบางคนไม่ได้รับการประเมิน`:"")
+        +(railed?` · มี ${railed} ตัวชี้วัดที่ค่าอำนาจจำแนกชนขอบ แปลว่ากลุ่มตัวอย่างยังเล็กเกินกว่าจะแยกความต่างได้`:"")
+        +(cohort.length<CAL_GOOD_N?` · ผู้เรียนยังไม่ถึง ${CAL_GOOD_N} คน ค่าที่ได้ยังไม่เสถียร ใช้ดูแนวโน้มเท่านั้น`:"")
+        +` · ควรสอบเทียบซ้ำด้วย MML-EM เมื่อมีข้อมูลจริงเพียงพอ`); break; }
 
     /* --- รายงานวินิจฉัย --- */
     case "dxtab": S.dxTab=v; if(v==="gdina") S.dxCdm=true; break;
@@ -9907,113 +10026,380 @@ const AI_TABS=[["chat","สนทนา","chat"],["help","ช่วยเหล�
 const aiEsc=s=>esc(s);
 function aiSay(who,html){ AI.msgs.push({who,html}); }
 
+/* ═══════════════════════════════════════════════════════════════
+   ผู้ช่วยอัจฉริยะ · เครื่องจับเจตนาแบบให้คะแนน
+
+   ของเดิมเป็นโซ่เงื่อนไข if แบบ "ใครตรงก่อนได้ไป" ซึ่งมีปัญหาสามอย่าง
+     1) ลำดับสำคัญเกินไป คำว่า "คะแนน" หรือ "สมรรถนะ" ดักคำถามเรื่องอื่นไปตอบผิด
+     2) เทียบชื่อสมรรถนะด้วย c.th.includes(t) ซึ่งต้องพิมพ์ชื่อเป๊ะทั้งประโยค
+        พิมพ์ "บริหารจัดการชั้นเรียนเป็นอย่างไร" จึงไม่เจอ ทั้งที่ชื่อสมรรถนะอยู่ในนั้น
+     3) ตอบไม่ได้ก็ขึ้นข้อความเดียวกันเสมอ ผู้ใช้ไม่รู้ว่าควรถามอย่างไรจึงจะได้คำตอบ
+
+   ของใหม่ให้คะแนนทุกเจตนาแล้วเลือกตัวที่ได้คะแนนสูงสุด
+     kw     คำที่เกี่ยวข้อง นับ 1 คะแนน
+     strong คำที่ชี้เจตนานี้ชัดเจน นับ 3 คะแนน
+     block  คำที่ถ้าพบแปลว่าไม่ใช่เจตนานี้ ตัดทิ้งทันที
+   คะแนนเท่ากันให้ตัวที่อยู่ก่อนในตาราง (เรียงจากเฉพาะเจาะจงไปหากว้าง)
+   ต่ำกว่าเกณฑ์จะไม่เดา แต่จะเสนอคำถามที่ใกล้เคียงที่สุดให้แทน
+   ═══════════════════════════════════════════════════════════════ */
+
+/** ตัดช่องว่างและอักขระที่ไม่ใช่ตัวอักษรออก เพื่อให้เทียบคำได้แม้พิมพ์ติดกันหรือเว้นวรรคต่างกัน
+    พร้อมรวมรูปเขียนที่สะกดได้หลายแบบให้เหลือแบบเดียว
+    ผู้ใช้พิมพ์ "เท่าไหร่" กับ "เท่าไร" หมายถึงสิ่งเดียวกัน ถ้าไม่รวมต้องใส่คำค้นซ้ำทุกที่
+    และสรรพนามบุรุษที่หนึ่งมีหลายคำ จึงยุบให้เหลือคำเดียวเพื่อให้คำค้นชุดเดียวครอบคลุมได้หมด */
+const AI_VARIANTS=[
+  [/เท่าไหร่/g,"เท่าไร"], [/ยังไง/g,"อย่างไร"], [/ไหน/g,"ไหน"],
+  [/(ผม|ดิฉัน|หนู|กระผม|เรา)/g,"ฉัน"],
+  [/พอร์ต(โฟลิโอ)?/g,"แฟ้มสะสมงาน"],
+];
+function aiNorm(s){
+  let v=String(s||"").toLowerCase().replace(/[\s​\-_.,!?()"'`]/g,"");
+  AI_VARIANTS.forEach(([re,to])=>{ v=v.replace(re,to); });
+  return v;
+}
+/** คำถามที่ผู้ใช้พิมพ์มี "คำนี้" อยู่หรือไม่ เทียบบนข้อความที่ตัดช่องว่างแล้วทั้งสองฝั่ง */
+function aiHas(nq,w){ return nq.indexOf(aiNorm(w))>=0; }
+
+/** ตัดคำภาษาไทยแบบหยาบด้วยการไล่ n-gram ใช้เทียบชื่อสมรรถนะแบบยืดหยุ่น
+    ภาษาไทยไม่มีช่องว่างระหว่างคำ การเทียบทั้งประโยคจึงพลาดเสมอ
+    วิธีนี้นับว่าชื่อสมรรถนะมีชิ้นส่วนยาว ๆ ปรากฏในคำถามมากแค่ไหน */
+function aiOverlap(name,nq){
+  const n=aiNorm(name);
+  if(!n||!nq) return 0;
+  let best=0;
+  for(let len=Math.min(n.length,18);len>=4;len--){
+    for(let i=0;i+len<=n.length;i++){
+      if(nq.indexOf(n.slice(i,i+len))>=0){ best=len; break; }
+    }
+    if(best) break;
+  }
+  return best/Math.max(4,n.length);
+}
+
+/** หาสมรรถนะที่ตรงกับคำถามมากที่สุด คืน null เมื่อไม่มีอะไรใกล้เคียงพอ */
+function aiFindComp(nq){
+  let best=null;
+  FW.competencies.forEach(c=>{
+    let sc=aiOverlap(c.th,nq);
+    if(aiNorm(c.code)&&nq.indexOf(aiNorm(c.code))>=0) sc=Math.max(sc,1);
+    if(c.en&&aiOverlap(c.en,nq)>0.6) sc=Math.max(sc,0.7);
+    if(sc>0.45&&(!best||sc>best.sc)) best={c,sc};
+  });
+  return best?best.c:null;
+}
+
+/** หานักศึกษาที่ชื่อตรงกับคำถาม ใช้กับผู้ประเมินที่ถามถึงผู้เรียนเป็นรายคน */
+function aiFindStudent(nq){
+  if(S.role==="Student") return null;
+  let best=null;
+  visStudents().forEach(u=>{
+    const sc=aiOverlap(u.name,nq);
+    const byCode=u.code&&nq.indexOf(aiNorm(u.code))>=0;
+    const v=byCode?1:sc;
+    if(v>0.5&&(!best||v>best.v)) best={u,v};
+  });
+  return best?best.u:null;
+}
+
+const AI_MIN_SCORE=3;   // ต่ำกว่านี้ถือว่ายังไม่มั่นใจพอที่จะตอบ
+
+/** ตารางเจตนา เรียงจากเฉพาะเจาะจงไปหากว้าง
+    roles ว่าง = ใช้ได้ทุกบทบาท · need = เงื่อนไขข้อมูลที่ต้องมีก่อนจึงจะตอบได้ */
+const AI_INTENTS=[
+  /* ---------- ของผู้เรียน ---------- */
+  {id:"stu.decline", roles:["Student"], need:"P",
+   strong:["คะแนนลดลง","ถดถอย","แย่ลง","ตกลง","ลดลง","คะแนนตก","ตกบ้าง","ลดบ้าง"],
+   kw:["สมรรถนะ","รอบ","ด้านไหน","ตก"],
+   run:({P})=>!P.declining.length?"ไม่มีสมรรถนะใดที่คะแนนลดลงจากรอบแรกครับ":
+     "สมรรถนะที่คะแนนลดลง<br>"+P.declining.map((o,i)=>
+       `${i+1}. ${aiEsc(o.c.th)} · ${o.trend.toFixed(2)} ระดับจากรอบแรก (ปัจจุบัน ${fmt(o.v)})`).join("<br>")},
+
+  {id:"stu.weak", roles:["Student"], need:"P",
+   strong:["ต้องพัฒนา","ควรพัฒนา","อ่อน","จุดอ่อน","ปรับปรุง"], kw:["สมรรถนะ","ด้านไหน","อะไรบ้าง"],
+   run:({P})=>!P.gaps.length?"ทุกสมรรถนะถึงระดับเป้าหมายแล้วครับ":
+     "สมรรถนะที่ควรพัฒนาก่อน<br>"+P.gaps.map((o,i)=>
+       `${i+1}. ${aiEsc(o.c.th)} · ปัจจุบัน ${fmt(o.v)} เป้าหมาย ${o.t} (ขาด ${Math.abs(o.gap).toFixed(2)})`).join("<br>")},
+
+  {id:"stu.strong", roles:["Student"], need:"P",
+   strong:["จุดแข็ง","ทำได้ดีที่สุด","เก่งที่สุด","ดีที่สุด","เก่ง"], kw:["สมรรถนะ"],
+   run:({P})=>!P.strengths.length?"ยังไม่มีข้อมูลเพียงพอครับ":
+     "จุดแข็งของท่าน<br>"+P.strengths.map((o,i)=>
+       `${i+1}. ${aiEsc(o.c.th)} · ${fmt(o.v)} (สูงกว่าเป้าหมาย ${o.gap.toFixed(2)})`).join("<br>")},
+
+  {id:"stu.growth", roles:["Student"], need:"P",
+   strong:["พัฒนาการ","ก้าวหน้า","ดีขึ้น","แนวโน้ม","เติบโต"], kw:["รอบ","เทียบ"],
+   run:({P})=>P.growth===null?"ยังมีรอบการประเมินไม่พอสำหรับดูแนวโน้ม ต้องมีอย่างน้อย 2 รอบครับ":
+     `เทียบรอบแรกกับรอบล่าสุด เปลี่ยนแปลง <b>${(P.growth>=0?"+":"")+P.growth.toFixed(2)}</b> ระดับ
+      เฉลี่ย ${(P.perRound>=0?"+":"")+P.perRound.toFixed(2)} ต่อรอบ
+      ${P.declining.length?"<br>มี "+P.declining.length+" สมรรถนะที่ลดลง นำโดย "+aiEsc(P.declining[0].c.th):""}`},
+
+  {id:"stu.risk", roles:["Student"], need:"P",
+   strong:["ความเสี่ยง","เสี่ยงไหม","risk","เสี่ยง"], kw:["ไม่ผ่าน","เกณฑ์"],
+   run:({P})=>`ความเสี่ยงไม่ผ่านเกณฑ์ประมาณ <b>${Math.round(P.risk*100)}%</b>
+     ${P.risk>=.6?"อยู่ในระดับสูง ควรนัดหมายอาจารย์นิเทศก์":P.risk>=.35?"ต้องเฝ้าระวัง":"อยู่ในระดับต่ำ"}
+     <br><span class="sub">ค่านี้มาจากแบบจำลองที่ยังไม่ได้สอบเทียบกับข้อมูลย้อนหลังจริง ใช้ประกอบดุลยพินิจ</span>`},
+
+  {id:"stu.path", roles:["Student"], need:"P",
+   strong:["แผนการเรียน","เส้นทางการเรียน","ควรทำอะไร","เส้นทาง","แผน"], kw:["พัฒนา","ต่อไป","path"],
+   run:({P})=>"เส้นทางการเรียนรู้ของท่าน<br>"+personalPath(P).map((p,i)=>
+       `<b>${i+1}. ${aiEsc(p.head)}</b> <span class="sub">${aiEsc(p.n)}</span>`).join("<br>")+
+     `<br><span class="sub">ดูรายละเอียดทั้งหมดได้ที่แดชบอร์ด หัวข้อ 📚 Personalized Learning Path</span>`},
+
+  {id:"stu.exam", roles:["Student"], need:"P",
+   strong:["แบบทดสอบ","สอบครบ","ทำข้อสอบ","exam"], kw:["สอบ","ชุด","เหลือ"],
+   run:({P})=>`ท่านทำแบบทดสอบแล้ว <b>${P.examDone}</b> จาก ${P.openTests.length} ชุด
+     ${P.openTests.length>P.examDone?"<br>ไปที่เมนู แบบทดสอบสมรรถนะ เพื่อทำชุดที่เหลือ":""}`},
+
+  {id:"stu.evidence", roles:["Student"], need:"P",
+   strong:["แฟ้มสะสมงาน","หลักฐาน","portfolio"], kw:["ส่ง","ตรวจ","ครบ","กี่ชิ้น","ผลงาน"],
+   run:({P})=>`แฟ้มสะสมงานมี <b>${P.myEv.length}</b> รายการ · ผ่านการตรวจสอบ ${P.evVerified} · รอตรวจ ${P.evPending}`},
+
+  {id:"stu.score", roles:["Student"], need:"P",
+   strong:["คะแนนรวมของฉัน","คะแนนของฉัน","คะแนนฉัน","ผลของฉัน","ระดับของฉัน","ได้เท่าไร",
+           "คะแนนเท่าไร","กี่คะแนน","ได้คะแนน"],
+   kw:["คะแนน","ระดับ","เป้าหมาย","ถึง","เท่าไร"],
+   run:({P})=>{
+     const lv=P.level?FW.levels[P.level-1]:null;
+     return `คะแนนรวมของท่านคือ <b>${fmt(P.overall)}</b> ${lv?"ระดับ "+aiEsc(lv.th):""}
+       · ถึงเป้าหมาย ${P.onTarget} จาก ${P.withV.length} สมรรถนะ
+       · เป้าหมายเฉลี่ยของชั้นปี ${fmt(P.targetAvg,1)}`;}},
+
+  /* ---------- ของผู้ประเมิน ---------- */
+  {id:"rater.bias", roles:["Lecturer","MajorAdvisor","Mentor","Director"],
+   strong:["ฉันให้คะแนน","สอดคล้อง","เข้มงวด","ใจดี","bias","ลำเอียง","โหด","ปล่อยเกรด","หนักมือ"],
+   kw:["คะแนน","เทียบ","คนอื่น","ให้คะแนน","มาตรฐาน"],
+   run:({me})=>{
+     const A=advisorIRR(me?me.id:"");
+     if(!A||!A.n||A.n<3) return "ยังมีระเบียนการประเมินของท่านไม่พอสำหรับคำนวณครับ ต้องมีอย่างน้อย 3 ช่องเทียบ";
+     return `จาก ${A.n} ช่องเทียบ คะแนนของท่านเฉลี่ย ${fmt(A.ownMean)} เทียบค่ากลางฝ่ายอื่น ${fmt(A.otherMean)}
+       · ส่วนต่าง <b>${(A.bias>=0?"+":"")+A.bias.toFixed(2)}</b><br>${aiEsc(A.verdict)} (p = ${A.p.toFixed(3)})
+       <br><span class="sub">ดูรายละเอียดที่ โปรไฟล์ของฉัน › ความสอดคล้องของผู้ประเมิน</span>`;}},
+
+  /* ---------- ของผู้ดูแลและผู้บริหาร ---------- */
+  {id:"staff.irr", roles:["Administrator","Program Chair","Dean"],
+   strong:["ความสอดคล้องผู้ประเมิน","kappa","แคปปา","icc","ความสอดคล้อง"], kw:["ผู้ประเมิน","ตรงกัน","เชื่อถือ"],
+   run:()=>{
+     const A=irrAnalyze();
+     if(A.error) return "ยังคำนวณความสอดคล้องไม่ได้ · "+aiEsc(A.error);
+     const strict=A.raters.filter(r=>r.p<0.05&&r.dPair<0).length;
+     const lenient=A.raters.filter(r=>r.p<0.05&&r.dPair>0).length;
+     return `จาก ${A.n.toLocaleString()} คู่คะแนน
+       ${IRR_SRC.mode==="raw"?`(ระเบียนจริง ${IRR_SRC.rounds} รอบ ผู้ประเมิน ${IRR_SRC.raters} คน)`:"(ค่าเฉลี่ยรายช่องทาง รอบล่าสุด)"}
+       <br>· แคปปาถ่วงน้ำหนัก <b>${fmt(A.kappa,3)}</b> · ICC(2,k) ${A.iccCell?fmt(A.iccCell.iccK,3):"—"}
+       <br>· ให้ระดับตรงกันพอดี ${(A.exact*100).toFixed(1)}% · ต่างไม่เกิน 1 ระดับ ${(A.within1*100).toFixed(1)}%
+       <br>· ให้คะแนนสูงกว่าคู่ประเมินอย่างมีนัยสำคัญ ${lenient} คน · ต่ำกว่า ${strict} คน
+       <br><span class="sub">ดูรายละเอียดที่เมนู ความสอดคล้องผู้ประเมิน</span>`;}},
+
+  {id:"staff.edm", roles:["Administrator","Program Chair","Dean"],
+   strong:["edm","data mining","แบบจำลองทำนาย","ทำนายผล","โมเดลทำนาย"], kw:["auc","โมเดล","แม่นยำ","ประสิทธิภาพ"],
+   run:()=>{
+     const c=edmCompute();
+     if(c.error) return "ยังวิเคราะห์ไม่ได้ · "+aiEsc(c.error);
+     const ready=EDM_MODELS.filter(m=>m.ready&&!m.deep&&c.res[m.id]);
+     const best=ready.map(m=>({m,k:c.res[m.id].metrics})).sort((a,b)=>b.k.auc-a.k.auc)[0];
+     return `ฝึกจากผู้เรียน ${c.rows.length} คน ตรวจสอบไขว้แบบ leave-one-out
+       <br>โมเดลที่ทำได้ดีที่สุดคือ <b>${aiEsc(best.m.name)}</b> · AUC ${best.k.auc.toFixed(3)}
+       · Recall ${(best.k.rec*100).toFixed(0)}% · Precision ${(best.k.prec*100).toFixed(0)}%
+       <br>· กลุ่มไม่ผ่านเกณฑ์จริง ${c.Y.reduce((a,b)=>a+b,0)} คน
+       <br><span class="sub">ควรให้น้ำหนัก Recall มากกว่า Accuracy เพราะการพลาดกลุ่มเสี่ยงมีต้นทุนสูงกว่า</span>`;}},
+
+  {id:"staff.deep", roles:["Administrator","Program Chair","Dean"],
+   strong:["โมเดลเชิงลึก","deep learning","dkt","transformer","neural","ลำดับการตอบ"], kw:["ฝึก","ข้อมูลจริง","จำลอง"],
+   run:()=>{
+     deepData();
+     const s=SEQ_SRC;
+     if(s.mode==="real")
+       return `ลำดับการตอบใช้<b>ข้อมูลจริง</b>แล้ว · ${s.n.toLocaleString()} ลำดับ จากผู้สอบ ${s.students} คน
+         ความยาวลำดับละ ${s.len} ข้อ รวม ${(s.answers||0).toLocaleString()} คำตอบ
+         <br>แบ่งชุดฝึก ${s.trStu} คน ชุดทดสอบ ${s.teStu} คน ผู้สอบในชุดทดสอบไม่ปรากฏในชุดฝึก
+         <br><span class="sub">ไปที่เมนู Educational Data Mining แล้วเลือกโมเดลกลุ่ม Deep Learning เพื่อกดฝึก</span>`;
+     return `ลำดับการตอบ<b>ยังใช้ชุดจำลอง</b> · ${aiEsc(s.why||"ข้อมูลจริงยังไม่พอ")}
+       <br>ต้องมีลำดับการสอบที่ยาวพออย่างน้อย ${SEQ_REAL_MIN_SEQ} ลำดับ (ลำดับละไม่ต่ำกว่า ${SEQ_REAL_MIN_LEN} ข้อ)
+       <br><span class="sub">กดปุ่ม "ดึงข้อมูลการสอบจริงใหม่" ที่หน้า Educational Data Mining หากเพิ่งมีผู้เข้าสอบเพิ่ม</span>`;}},
+
+  {id:"staff.cdm",
+   strong:["deepcdm","cognitive diagnosis","วินิจฉัยเชิงลึก","ความรอบรู้"], kw:["โมเดล","ฝึก","q-matrix"],
+   run:()=>{
+     const F=CDM_FIT;
+     if(F) return `DeepCDM ของชั้นปีที่ ${F.year} ฝึกแล้ว · AUC ${F.metrics.auc.toFixed(3)}
+       · ผู้เรียน ${F.N} คน · ข้อสอบ ${F.J} ข้อ · สมรรถนะ ${F.K} ด้าน · คำตอบ ${F.nResp.toLocaleString()} รายการ
+       <br><span class="sub">ดูผลรายบุคคลได้ที่ โมเดลวัดผล › DeepCDM</span>`;
+     const r=cdmData(S.psyYear||1);
+     return r.ok
+       ? `DeepCDM ของชั้นปีที่ ${S.psyYear||1} พร้อมฝึกแล้ว · คำตอบ ${r.rows.length.toLocaleString()} รายการ จากผู้สอบ ${r.N} คน
+          <br><span class="sub">ไปที่ โมเดลวัดผล › DeepCDM แล้วกดปุ่มฝึก</span>`
+       : `DeepCDM ยังฝึกไม่ได้ · ${aiEsc(r.reason)}
+          <br><span class="sub">ต้องมีผู้สอบ ${CDM_MIN_STUDENT} คน และคำตอบรายข้อ ${CDM_MIN_RESP} รายการต่อชั้นปี</span>`;}},
+
+  {id:"staff.dif", roles:["Administrator","Program Chair","Dean"],
+   strong:["dif","ความลำเอียงรายข้อ","mantel","ลำเอียง"], kw:["ข้อสอบ","กลุ่ม","เป็นธรรม"],
+   run:()=>{
+     const c=FW.competencies.find(x=>x.id===(S.iqComp||FW.competencies[0].id))||FW.competencies[0];
+     const o=difAnalysis(c.id,S.difVar||"program");
+     const cnt={A:0,B:0,C:0};
+     o.rows.forEach(r=>{const k=r.lvl.charAt(0); if(cnt[k]!==undefined)cnt[k]++;});
+     return `ตรวจ DIF ของ ${aiEsc(c.code)} ${aiEsc(c.th)}
+       <br>${o.meta.real
+         ?`ใช้<b>กลุ่มจริง</b> ตัวแปร ${aiEsc(o.meta.varLabel)} · ${aiEsc(o.meta.refLabel)} ${o.meta.nRef} คน เทียบ ${aiEsc(o.meta.focLabel)} ${o.meta.nFoc} คน`
+         :`<b>ยังใช้กลุ่มสุ่ม</b> · ${aiEsc(o.meta.why||"")}`}
+       <br>· ระดับ A ไม่พบ DIF ${cnt.A} ข้อ · B ${cnt.B} ข้อ · C ควรทบทวน ${cnt.C} ข้อ
+       <br><span class="sub">ดูรายละเอียดที่ XAI & Fairness › ความลำเอียงรายข้อ</span>`;}},
+
+  {id:"staff.exam", roles:["Administrator","Program Chair","Dean"],
+   strong:["ข้อมูลการสอบ","มีคนสอบ","ผู้เข้าสอบ","คำตอบรายข้อ"], kw:["สอบ","กี่คน","ข้อสอบ"],
+   run:()=>{
+     const mx=EXAM_MX&&EXAM_MX.summary;
+     if(!mx) return LIVE.mxErr?aiEsc(LIVE.mxErr):"ยังไม่ได้ดึงข้อมูลการสอบจากฐานข้อมูลครับ";
+     return `ข้อมูลการสอบจริงในฐานข้อมูล<br>· ผู้เข้าสอบ <b>${mx.tested}</b> คน จากผู้เรียน ${mx.students} คน
+       <br>· การสอบที่ส่งแล้ว ${mx.attempts} ครั้ง · คำตอบรายข้อ ${mx.answers.toLocaleString()} รายการ
+       <br>· คลังข้อสอบ ${mx.items} ข้อ`;}},
+
+  {id:"staff.risk", roles:["Administrator","Program Chair","Dean","Lecturer","MajorAdvisor","Mentor","Director"],
+   strong:["ต้องเฝ้าระวัง","นักศึกษาเสี่ยง","ใครเสี่ยง","เฝ้าระวัง"], kw:["เสี่ยง","นักศึกษา","ใคร"],
+   run:()=>{
+     const st=visStudents().map(s=>({s,r:analyze(FW,s.id)})).filter(o=>o.r).map(o=>({s:o.s,risk:o.r.edm.risk}));
+     const all=st.filter(o=>o.risk>=0.35);
+     if(!all.length) return "ไม่พบนักศึกษาที่ต้องเฝ้าระวังในขอบเขตของท่านครับ";
+     return `พบ <b>${all.length}</b> คนที่ต้องเฝ้าระวังขึ้นไป<br>`+
+       all.sort((a,b)=>b.risk-a.risk).slice(0,5).map(o=>
+         `${aiEsc(o.s.name)} · ${Math.round(o.risk*100)}%`).join("<br>")+
+       (all.length>5?`<br><span class="sub">และอีก ${all.length-5} คน ดูทั้งหมดที่เมนู นักศึกษา</span>`:"");}},
+
+  {id:"staff.count", roles:["Administrator","Program Chair","Dean","Lecturer","MajorAdvisor","Mentor","Director"],
+   strong:["ดูแลนักศึกษากี่คน","นักศึกษากี่คน","มีนักศึกษา","กี่คน","จำนวนนักศึกษา"],
+   kw:["นักศึกษา","จำนวน","ทั้งหมด","ดูแล"],
+   run:()=>{
+     const st=visStudents();
+     const byYear=[1,2,3,4].map(y=>`ปี ${y}: ${st.filter(x=>x.year===y).length}`).join(" · ");
+     return `ท่านดูแลนักศึกษา <b>${st.length}</b> คนในขอบเขตสิทธิ์ของท่าน`+
+       (scopeProgram()?` (สาขา ${aiEsc(scopeProgram())})`:"")+`<br><span class="sub">${byYear}</span>`;}},
+
+  {id:"staff.yearcfg", roles:["Administrator","Program Chair"],
+   strong:["เปิดใช้สมรรถนะ","สมรรถนะที่เปิด","ตั้งค่ารายชั้นปี","กรอบรายชั้นปี"], kw:["เปิด","ปิด","ชั้นปี","สมรรถนะ"],
+   run:()=>"สมรรถนะที่เปิดใช้จริงในแต่ละชั้นปี<br>"+[1,2,3,4].map(y=>{
+       const on=activeComps(FW,y);
+       return `· ${aiEsc(yearOf(FW,y).label)} · เปิดใช้ ${on.length} จาก ${FW.competencies.length} ด้าน`;
+     }).join("<br>")+`<br><span class="sub">ผู้ประเมินจะเห็นตามนี้เมื่อเปิดหน้าแบบประเมินครั้งถัดไป</span>`},
+
+  /* ---------- เรื่องทั่วไปของระบบ ---------- */
+  {id:"sys.formula",
+   strong:["สูตรคำนวณ","คิดคะแนนอย่างไร","คะแนนรวมคิดจาก","สูตร"], kw:["คำนวณ","หาร","เกณฑ์คะแนน"],
+   run:()=>`<b>${aiEsc(SCORE_RULE)}</b><br>${aiEsc(SCORE_RULE_NOTE)}`},
+
+  {id:"sys.version",
+   strong:["เวอร์ชัน","version","กรอบสมรรถนะรุ่น"], kw:["กรอบสมรรถนะ","ปรับปรุง"],
+   run:()=>`กรอบสมรรถนะเวอร์ชัน <b>${aiEsc(FW.version||"—")}</b>
+     · ${FW.competencies.length} สมรรถนะ · ${FW.levels.length} ระดับ
+     ${FW.updatedAt?"<br>ปรับปรุงล่าสุด "+aiEsc(String(FW.updatedAt).slice(0,10)):""}`},
+
+  {id:"sys.levels",
+   strong:["ระดับสมรรถนะ","กี่ระดับ","ระดับมีอะไร","อธิบายระดับ"], kw:["ระดับ"],
+   run:()=>"ระดับสมรรถนะมี "+FW.levels.length+" ระดับ<br>"+
+     FW.levels.map((l,i)=>`${i+1}. ${aiEsc(l.th)} · ${aiEsc(l.en)}`).join("<br>")},
+
+  {id:"sys.compcount",
+   strong:["มีกี่สมรรถนะ","สมรรถนะมีอะไรบ้าง","สมรรถนะทั้งหมด"], kw:["สมรรถนะ","กี่"],
+   run:({me,isStu})=>{
+     const y=isStu&&me?me.year:S.year;
+     return `ชั้นปีนี้เปิดใช้ ${activeComps(FW,y).length} สมรรถนะ จากทั้งหมด ${FW.competencies.length} ด้าน<br>`+
+       activeComps(FW,y).slice(0,8).map(c=>`· ${aiEsc(c.code)} ${aiEsc(c.th)}`).join("<br>")+
+       (activeComps(FW,y).length>8?`<br><span class="sub">และอีก ${activeComps(FW,y).length-8} ด้าน</span>`:"");}},
+
+  {id:"sys.raters",
+   strong:["ใครประเมิน","ผู้ประเมินมีใคร","ฝ่ายประเมิน","ประเมินกี่ฝ่าย","กี่ฝ่าย","ผู้ประเมินมี"],
+   kw:["ประเมิน","ฝ่าย","ใคร"],
+   run:()=>"ผู้ประเมินมี 4 ฝ่าย<br>"+RATERS.map(r=>`· ${aiEsc(r.label)}`).join("<br>")+
+     `<br><span class="sub">คะแนนรวมใช้ ${aiEsc(SCORE_RULE)}</span>`},
+
+  {id:"sys.help",
+   strong:["ถามอะไรได้","ช่วยอะไรได้","ใช้งานอย่างไร","ทำอะไรได้บ้าง"], kw:["ช่วย","แนะนำ"],
+   run:()=>"ถามได้เช่น<br>"+aiSuggestGroups().flatMap(g=>g.q).slice(0,8)
+     .map(q=>`· ${aiEsc(q)}`).join("<br>")},
+];
+
+/** ให้คะแนนเจตนาหนึ่งกับคำถามหนึ่ง */
+function aiScore(it,nq){
+  if(it.roles&&!it.roles.includes(S.role)) return -1;
+  if(it.block&&it.block.some(w=>aiHas(nq,w))) return -1;
+  let sc=0;
+  (it.strong||[]).forEach(w=>{ if(aiHas(nq,w)) sc+=3; });
+  (it.kw||[]).forEach(w=>{ if(aiHas(nq,w)) sc+=1; });
+  return sc;
+}
+
 /** ตอบคำถามจากข้อมูลจริงในระบบ ครอบคลุมคำถามที่พบบ่อยของแต่ละบทบาท */
 function aiAnswer(q){
   const t=String(q||"").trim();
   if(!t) return "กรุณาพิมพ์คำถามครับ";
-  const s=t.toLowerCase();
+  const nq=aiNorm(t);
   const me=S.user?myUser():null;
   const isStu=S.role==="Student";
+  const P=(isStu&&me)?personalize(me.id):null;
+  const ctx={t,nq,me,isStu,P};
 
-  if(/สูตร|คำนวณ|คิดคะแนน|หารด้วย|เกณฑ์คะแนน/.test(t))
-    return `<b>${aiEsc(SCORE_RULE)}</b><br>${aiEsc(SCORE_RULE_NOTE)}`;
-
-  if(/กรอบสมรรถนะ|เวอร์ชัน|version/.test(s))
-    return `กรอบสมรรถนะเวอร์ชัน <b>${aiEsc(FW.version||"—")}</b>
-      · ${FW.competencies.length} สมรรถนะ · ${FW.levels.length} ระดับ
-      ${FW.updatedAt?"<br>ปรับปรุงล่าสุด "+aiEsc(String(FW.updatedAt).slice(0,10)):""}`;
-
-  if(isStu&&me){
-    const P=personalize(me.id);
-    if(!P) return "ยังไม่มีผลการประเมินของท่านในระบบครับ";
-    /* กฎเฉพาะเจาะจงต้องมาก่อนกฎทั่วไป มิฉะนั้นคำว่า "คะแนน" หรือ "ระดับ"
-       จะดักคำถามที่ถามเรื่องอื่นไปตอบเป็นคะแนนรวมทั้งหมด */
-    if(/ลดลง|ถดถอย|แย่ลง|ตกลง/.test(t)){
-      if(!P.declining.length) return "ไม่มีสมรรถนะใดที่คะแนนลดลงจากรอบแรกครับ";
-      return "สมรรถนะที่คะแนนลดลง<br>"+P.declining.map((o,i)=>
-        `${i+1}. ${aiEsc(o.c.th)} · ${o.trend.toFixed(2)} ระดับจากรอบแรก (ปัจจุบัน ${fmt(o.v)})`).join("<br>");
-    }
-    if(/คะแนน|ได้เท่าไร|ระดับของฉัน|ผลของฉัน|เป้าหมายกี่|ถึงระดับ/.test(t)){
-      const lv=P.level?FW.levels[P.level-1]:null;
-      return `คะแนนรวมของท่านคือ <b>${fmt(P.overall)}</b> ${lv?"ระดับ "+aiEsc(lv.th):""}
-        · ถึงเป้าหมาย ${P.onTarget} จาก ${P.withV.length} สมรรถนะ
-        · เป้าหมายเฉลี่ยของชั้นปี ${fmt(P.targetAvg,1)}`;
-    }
-    if(/อ่อน|ต้องพัฒนา|ปรับปรุง|ต่ำ/.test(t)){
-      if(!P.gaps.length) return "ทุกสมรรถนะถึงระดับเป้าหมายแล้วครับ";
-      return "สมรรถนะที่ควรพัฒนาก่อน<br>"+P.gaps.map((o,i)=>
-        `${i+1}. ${aiEsc(o.c.th)} · ปัจจุบัน ${fmt(o.v)} เป้าหมาย ${o.t} (ขาด ${Math.abs(o.gap).toFixed(2)})`).join("<br>");
-    }
-    if(/เก่ง|จุดแข็ง|ดีที่สุด/.test(t)){
-      if(!P.strengths.length) return "ยังไม่มีข้อมูลเพียงพอครับ";
-      return "จุดแข็งของท่าน<br>"+P.strengths.map((o,i)=>
-        `${i+1}. ${aiEsc(o.c.th)} · ${fmt(o.v)} (สูงกว่าเป้าหมาย ${o.gap.toFixed(2)})`).join("<br>");
-    }
-    if(/พัฒนาการ|ก้าวหน้า|ดีขึ้น|แนวโน้ม/.test(t)){
-      if(P.growth===null) return "ยังมีรอบการประเมินไม่พอสำหรับดูแนวโน้ม ต้องมีอย่างน้อย 2 รอบครับ";
-      return `เทียบรอบแรกกับรอบล่าสุด เปลี่ยนแปลง <b>${(P.growth>=0?"+":"")+P.growth.toFixed(2)}</b> ระดับ
-        เฉลี่ย ${(P.perRound>=0?"+":"")+P.perRound.toFixed(2)} ต่อรอบ
-        ${P.declining.length?"<br>มี "+P.declining.length+" สมรรถนะที่ลดลง นำโดย "+aiEsc(P.declining[0].c.th):""}`;
-    }
-    if(/เสี่ยง|risk/.test(s))
-      return `ความเสี่ยงไม่ผ่านเกณฑ์ประมาณ <b>${Math.round(P.risk*100)}%</b>
-        ${P.risk>=.6?"อยู่ในระดับสูง ควรนัดหมายอาจารย์นิเทศก์":P.risk>=.35?"ต้องเฝ้าระวัง":"อยู่ในระดับต่ำ"}
-        <br><span class="sub">ค่านี้มาจากแบบจำลองที่ยังไม่ได้สอบเทียบกับข้อมูลย้อนหลังจริง ใช้ประกอบดุลยพินิจ</span>`;
-    if(/แผน|เส้นทาง|ควรทำ|path|เรียนรู้/.test(s)){
-      const ph=personalPath(P);
-      return "เส้นทางการเรียนรู้ของท่าน<br>"+ph.map((p,i)=>`<b>${i+1}. ${aiEsc(p.head)}</b> <span class="sub">${aiEsc(p.n)}</span>`).join("<br>")+
-        `<br><span class="sub">ดูรายละเอียดทั้งหมดได้ที่แดชบอร์ด หัวข้อ 📚 Personalized Learning Path</span>`;
-    }
-    if(/สอบ|แบบทดสอบ|exam/.test(s))
-      return `ท่านทำแบบทดสอบแล้ว <b>${P.examDone}</b> จาก ${P.openTests.length} ชุด
-        ${P.openTests.length>P.examDone?"<br>ไปที่เมนู แบบทดสอบสมรรถนะ เพื่อทำชุดที่เหลือ":""}`;
-    if(/หลักฐาน|แฟ้ม|portfolio/.test(s))
-      return `แฟ้มสะสมงานมี <b>${P.myEv.length}</b> รายการ · ผ่านการตรวจสอบ ${P.evVerified} · รอตรวจ ${P.evPending}`;
+  /* เลือกเจตนาที่ได้คะแนนสูงสุด คะแนนเท่ากันให้ตัวที่อยู่ก่อนในตาราง */
+  let best=null;
+  AI_INTENTS.forEach(it=>{
+    const sc=aiScore(it,nq);
+    if(sc>=AI_MIN_SCORE&&(!best||sc>best.sc)) best={it,sc};
+  });
+  if(best){
+    if(best.it.need==="P"&&!P)
+      return "ยังไม่มีผลการประเมินของท่านในระบบครับ เมื่ออาจารย์นิเทศก์หรือครูพี่เลี้ยงบันทึกผลแล้วจะตอบได้ทันที";
+    try{ return best.it.run(ctx); }
+    catch(e){ return "ขออภัยครับ คำนวณคำตอบไม่สำเร็จ ("+aiEsc(e.message||"")+") ลองถามใหม่อีกครั้ง หรือดูที่เมนูที่เกี่ยวข้องโดยตรง"; }
   }
 
-  if(!isStu&&/นักศึกษา|กี่คน|จำนวน/.test(t)){
-    const st=visStudents();
-    return `ท่านดูแลนักศึกษา <b>${st.length}</b> คนในขอบเขตสิทธิ์ของท่าน` +
-      (scopeProgram()?` (สาขา ${aiEsc(scopeProgram())})`:"");
-  }
-  if(!isStu&&/เสี่ยง|เฝ้าระวัง/.test(t)){
-    const st=visStudents().map(s=>({s,r:analyze(FW,s.id)})).filter(o=>o.r).map(o=>({s:o.s,risk:o.r.edm.risk}));
-    const hi=st.filter(o=>o.risk>=0.35).sort((a,b)=>b.risk-a.risk).slice(0,5);
-    if(!hi.length) return "ไม่พบนักศึกษาที่ต้องเฝ้าระวังในขอบเขตของท่านครับ";
-    return `พบ <b>${st.filter(o=>o.risk>=0.35).length}</b> คนที่ต้องเฝ้าระวังขึ้นไป<br>`+
-      hi.map(o=>`${aiEsc(o.s.name)} · ${Math.round(o.risk*100)}%`).join("<br>");
-  }
-  if(RATER_ROLES.includes(S.role)&&/ฉันให้คะแนน|สอดคล้อง|เข้มงวด|ใจดี|bias/.test(t)){
-    const A=advisorIRR(me?me.id:"");
-    if(!A||!A.n||A.n<3) return "ยังมีระเบียนการประเมินของท่านไม่พอสำหรับคำนวณครับ";
-    return `จาก ${A.n} เซลล์ คะแนนของท่านเฉลี่ย ${fmt(A.ownMean)} เทียบค่ากลางฝ่ายอื่น ${fmt(A.otherMean)}
-      · ส่วนต่าง <b>${(A.bias>=0?"+":"")+A.bias.toFixed(2)}</b><br>${aiEsc(A.verdict)} (p = ${A.p.toFixed(3)})
-      <br><span class="sub">ดูรายละเอียดที่ โปรไฟล์ของฉัน › ความสอดคล้องของผู้ประเมิน</span>`;
-  }
-
-  /* กฎทั่วไปเรื่องระดับ วางไว้หลังกฎของผู้เรียน เพื่อไม่ให้ดักคำถามอย่าง
-     "ฉันถึงระดับเป้าหมายกี่สมรรถนะ" ซึ่งเป็นคำถามเรื่องคะแนนของตนเอง */
-  if(/ระดับสมรรถนะ|กี่ระดับ|ระดับมีอะไร|อธิบายระดับ/.test(t))
-    return "ระดับสมรรถนะมี "+FW.levels.length+" ระดับ<br>"+
-      FW.levels.map((l,i)=>`${i+1}. ${aiEsc(l.th)} · ${aiEsc(l.en)}`).join("<br>");
-
-  if(/สมรรถนะ.*(อะไร|มีกี่)|กี่สมรรถนะ/.test(t))
-    return `ชั้นปีนี้เปิดใช้ ${activeComps(FW,isStu&&me?me.year:S.year).length} สมรรถนะ จากทั้งหมด ${FW.competencies.length} ด้าน`;
-
-  const hit=FW.competencies.filter(c=>t.length>=3&&(c.th.includes(t)||String(c.code).toLowerCase()===s));
-  if(hit.length){
-    const c=hit[0];
+  /* ไม่เข้าเจตนาใด ลองตีความว่าเป็นชื่อสมรรถนะหรือชื่อนักศึกษา */
+  const c=aiFindComp(nq);
+  if(c){
     const y=isStu&&me?me.year:S.year;
     const cf=cfgOf(FW,y,c.id);
-    return `<b>${c.code} ${aiEsc(c.th)}</b><br>${aiEsc(c.en)} · กลุ่ม ${PTRU[c.ptru]?aiEsc(PTRU[c.ptru].th):"—"}
-      <br>ชั้นปีนี้ ${cf.active?"เปิดใช้":"ปิดใช้"} · ระดับเป้าหมาย ${cf.target} · ตัวชี้วัด ${(cf.indicators||[]).length} ข้อ`;
+    const mine=(isStu&&me&&P)?P.items.find(x=>x.c.id===c.id):null;
+    return `<b>${aiEsc(c.code)} ${aiEsc(c.th)}</b><br>${aiEsc(c.en)} · กลุ่ม ${PTRU[c.ptru]?aiEsc(PTRU[c.ptru].th):"—"}
+      <br>${aiEsc(yearOf(FW,y).label)} · ${cf.active?"เปิดใช้":"ปิดใช้"} · ระดับเป้าหมาย ${cf.target}
+      · ตัวชี้วัด ${(cf.indicators||[]).length} ข้อ
+      ${mine&&mine.v!==null?`<br>คะแนนของท่านในด้านนี้ <b>${fmt(mine.v)}</b> ${mine.v>=cf.target?"ถึงเป้าหมายแล้ว":"ยังต่ำกว่าเป้าหมาย"}`:""}`;
+  }
+  const st=aiFindStudent(nq);
+  if(st){
+    const A=analyze(FW,st.id);
+    if(!A) return `${aiEsc(st.name)} · ${aiEsc(st.program||"—")} ${aiEsc(yearOf(FW,st.year).label)}
+      <br>ยังไม่มีผลการประเมินของผู้เรียนรายนี้ในระบบครับ`;
+    return `<b>${aiEsc(st.name)}</b> · ${aiEsc(st.code||"—")} · ${aiEsc(st.program||"—")} ${aiEsc(yearOf(FW,st.year).label)}
+      <br>· คะแนนรวม ${fmt(A.overall)} · ความเสี่ยงไม่ผ่านเกณฑ์ ${Math.round(A.edm.risk*100)}%
+      <br><span class="sub">ดูรายงานเต็มที่เมนู รายงานวินิจฉัยรายบุคคล</span>`;
   }
 
-  return `ยังไม่เข้าใจคำถามนี้ครับ ลองถามเช่น
-    <br>· คะแนนของฉันเท่าไร · สมรรถนะที่ต้องพัฒนา · แผนการเรียนรู้
-    <br>· สูตรคำนวณคะแนน · กรอบสมรรถนะเวอร์ชันอะไร
-    <br>หรือพิมพ์ชื่อสมรรถนะเพื่อดูรายละเอียด`;
+  /* ยังไม่มั่นใจ เสนอคำถามที่ใกล้เคียงที่สุดแทนการเดา
+     ดีกว่าตอบผิด เพราะผู้ใช้จะได้รู้ว่าระบบเข้าใจเรื่องใดได้บ้าง */
+  const near=AI_INTENTS.map(it=>({it,sc:aiScore(it,nq)}))
+    .filter(o=>o.sc>0).sort((a,b)=>b.sc-a.sc).slice(0,3);
+  const hint=near.length
+    ? "ท่านหมายถึงเรื่องเหล่านี้หรือไม่ครับ<br>"+near.map(o=>`· ${aiEsc(AI_HINT[o.it.id]||o.it.id)}`).join("<br>")
+    : "ลองถามเช่น<br>"+aiSuggestGroups().flatMap(g=>g.q).slice(0,5).map(q=>`· ${aiEsc(q)}`).join("<br>");
+  return `ยังไม่แน่ใจว่าท่านถามเรื่องใดครับ<br>${hint}
+    <br><span class="sub">หรือพิมพ์ชื่อสมรรถนะ${S.role==="Student"?"":"หรือชื่อนักศึกษา"}เพื่อดูรายละเอียดโดยตรง</span>`;
 }
+
+/** คำอธิบายสั้นของแต่ละเจตนา ใช้เสนอเป็นตัวเลือกเมื่อระบบยังไม่มั่นใจ */
+const AI_HINT={
+  "stu.decline":"สมรรถนะที่คะแนนลดลง", "stu.weak":"สมรรถนะที่ต้องพัฒนา",
+  "stu.strong":"จุดแข็งของฉัน", "stu.growth":"พัฒนาการของฉัน",
+  "stu.risk":"ความเสี่ยงของฉัน", "stu.path":"แผนการเรียนรู้ของฉัน",
+  "stu.exam":"ฉันทำแบบทดสอบครบหรือยัง", "stu.evidence":"หลักฐานในแฟ้มสะสมงาน",
+  "stu.score":"คะแนนรวมของฉัน",
+  "rater.bias":"ฉันให้คะแนนสอดคล้องกับคนอื่นไหม",
+  "staff.irr":"ความสอดคล้องระหว่างผู้ประเมิน", "staff.edm":"ผลของแบบจำลองทำนายความเสี่ยง",
+  "staff.deep":"โมเดลเชิงลึกใช้ข้อมูลจริงหรือยัง", "staff.cdm":"สถานะของ DeepCDM",
+  "staff.dif":"ความลำเอียงรายข้อของข้อสอบ", "staff.exam":"ข้อมูลการสอบจริงในฐานข้อมูล",
+  "staff.risk":"นักศึกษาที่ต้องเฝ้าระวัง", "staff.count":"ดูแลนักศึกษากี่คน",
+  "staff.yearcfg":"สมรรถนะที่เปิดใช้รายชั้นปี",
+  "sys.formula":"สูตรคำนวณคะแนน", "sys.version":"กรอบสมรรถนะเวอร์ชันอะไร",
+  "sys.levels":"ระดับสมรรถนะมีกี่ระดับ", "sys.compcount":"สมรรถนะมีอะไรบ้าง",
+  "sys.raters":"ผู้ประเมินมีกี่ฝ่าย", "sys.help":"ถามอะไรได้บ้าง",
+};
+
 
 /** ชุดคำถามแนะนำ จัดกลุ่มตามเรื่อง เพื่อให้ผู้ใช้เห็นว่าถามอะไรได้บ้าง
     เลือกให้ตรงกับสิ่งที่บทบาทนั้นเห็นได้จริง จะได้ไม่ถามแล้วระบบตอบว่าไม่มีสิทธิ์ */
