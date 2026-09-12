@@ -1932,7 +1932,7 @@ function fwYearTab(y,ro){
     <select class="inp" style="width:auto" data-act="fwcopy"><option value="">คัดลอกจากชั้นปี…</option>${copy}</select>
     <button class="btn btn-ghost btn-sm" data-act="fwgenyear">สร้างตัวชี้วัดทั้งชั้นปีอัตโนมัติ</button></div>`;
   return `<div class="stack">${card(`การตั้งค่า${yc.label}`,
-    `ติ๊กช่อง "เปิด" เพื่อเลือกว่าสมรรถนะใดจะใช้ประเมินใน${yc.label} · ขณะนี้เปิดใช้ ${open} จาก ${FW.competencies.length} สมรรถนะ${ro?"":" · ทุกค่าบันทึกลงฐานข้อมูลอัตโนมัติและมีผลกับผู้ประเมินทุกคนทันที"}`,
+    `ติ๊กช่อง "เปิด" เพื่อเลือกว่าสมรรถนะใดจะใช้ประเมินใน${yc.label} · ขณะนี้เปิดใช้ ${open} จาก ${FW.competencies.length} สมรรถนะ${ro?"":" · ทุกค่าบันทึกลงฐานข้อมูลอัตโนมัติ ผู้ประเมินจะเห็นตามนี้เมื่อเปิดหน้าแบบประเมินครั้งถัดไป โดยไม่ต้องเข้าระบบใหม่"}`,
     `<div class="grid g2" style="gap:.7rem;margin-bottom:.9rem">
       <div class="field" style="margin-top:0"><label>ชื่อชั้นปี</label><input class="inp" value="${esc(yc.label)}" ${ro?"disabled":""} data-act="fwylabel" data-nore></div>
       <div class="field" style="margin-top:0"><label>ระยะพัฒนาการ</label><input class="inp" value="${esc(yc.stage)}" ${ro?"disabled":""} data-act="fwystage" data-nore></div></div>
@@ -5716,6 +5716,18 @@ function maintenancePage(){
           <td style="font-size:.8rem;color:var(--muted)">${esc(f.hint||"—")}</td></tr>`).join("")}
         </tbody></table></div>`
         :`<div class="alert alert-ok" style="margin-top:.9rem">ไม่พบปัญหาในฐานข้อมูล ทุกการอ้างอิงข้ามตารางถูกต้องและไม่มีข้อมูลซ้ำ</div>`}
+      ${Array.isArray(dg.year_scope)?`<div style="margin-top:1rem"><div class="lb">สมรรถนะที่เปิดใช้จริงในฐานข้อมูล แยกรายชั้นปี</div>
+        <div class="hint" style="margin-bottom:.4rem">อ่านจากชีต YearConfig โดยตรง เป็นชุดเดียวกับที่ผู้ประเมินจะเห็นในแบบประเมิน
+          ถ้าไม่ตรงกับที่ติ๊กไว้ในหน้ากรอบสมรรถนะ แปลว่าการบันทึกยังไม่ครบ</div>
+        <div class="scroll-x"><table class="tight" style="min-width:760px"><thead><tr>
+          <th style="width:96px">ชั้นปี</th><th class="num" style="width:110px">เปิดใช้</th>
+          <th class="num" style="width:130px">มีระเบียนแล้ว</th><th>รหัสสมรรถนะที่เปิด</th></tr></thead><tbody>
+        ${dg.year_scope.map(s=>`<tr>
+          <td>ชั้นปีที่ ${s.year}</td>
+          <td class="num"><span class="tag ${s.active?"tag-ok":"tag-n"}">${s.active} / ${s.total}</span></td>
+          <td class="num">${s.configured} / ${s.total}</td>
+          <td style="font-size:.8rem;color:var(--muted)">${s.active?esc(s.codes):"ยังไม่เปิดสมรรถนะใดเลย ผู้ประเมินจะไม่พบหัวข้อในแบบประเมิน"}</td>
+        </tr>`).join("")}</tbody></table></div></div>`:""}
       ${dg.counts?`<div class="scroll-x" style="margin-top:.9rem"><table class="tight"><thead><tr><th>ชีต</th><th class="num">จำนวนแถว</th><th>ชีต</th><th class="num">จำนวนแถว</th></tr></thead><tbody>
         ${(()=>{const k=Object.keys(dg.counts); let h="";
           for(let i=0;i<k.length;i+=2) h+=`<tr><td>${esc(k[i])}</td><td class="num">${dg.counts[k[i]]<0?"—":dg.counts[k[i]].toLocaleString()}</td>
@@ -7067,7 +7079,11 @@ document.addEventListener("click",e=>{
     case "scale": S.scale=parseFloat(v); break;
 
     /* --- นำทาง --- */
-    case "nav": S.page=v; S.msg=""; S.err=""; S.usrEdit=null; break;
+    /* เปิดหน้าที่ใช้กรอบสมรรถนะจริง ให้ดึงกรอบล่าสุดมาก่อน
+       ผู้ประเมินที่เปิดค้างไว้จึงเห็นสมรรถนะตามที่ผู้ดูแลเพิ่งเปิดหรือปิด โดยไม่ต้องเข้าระบบใหม่ */
+    case "nav": S.page=v; S.msg=""; S.err=""; S.usrEdit=null;
+      if(["assess","progress","dashboard","students","myladder","exam","diagnostic","analytics"].includes(v)) refreshFramework();
+      break;
 
     /* --- ผู้ใช้งาน --- */
     case "usrtab": S.usrTab=v; S.usrEdit=null; S.err=""; break;
@@ -7697,6 +7713,8 @@ const LIVE = {
   evLoaded : new Set(),          // รหัสนักศึกษาที่ดึงแฟ้มสะสมงานแล้ว
   sync     : {done: 0, total: 0, running: false},
   fwLive   : false,              // กรอบสมรรถนะมาจากเซิร์ฟเวอร์
+  fwAt     : 0,                  // เวลาที่ดึงกรอบสมรรถนะครั้งล่าสุด
+  fwBusy   : false,              // กำลังดึงกรอบสมรรถนะซ้ำอยู่
   bankLive : false,
   queue    : [],                 // งานเขียนที่ล้มเหลว รอส่งซ้ำ
   intent   : null,
@@ -7709,6 +7727,17 @@ function liveErr(e) { LIVE.err = (e && e.message) ? e.message : String(e || '');
 /*───────── 21.3 ตัวช่วยแปลงข้อมูล ─────────*/
 const numOr = (v, d) => { const n = Number(v); return isFinite(n) ? n : d; };
 const jparse = (v, d) => { try { return typeof v === 'string' ? (v ? JSON.parse(v) : d) : (v || d); } catch (e) { return d; } };
+/** อ่านค่าจริง/เท็จให้ได้ผลเดียวกันไม่ว่าเซิร์ฟเวอร์จะส่งมาเป็นบูลีนหรือข้อความ
+    คู่กับ bool_ ใน Code.gs เซิร์ฟเวอร์รุ่นก่อนส่ง "TRUE"/"FALSE" เป็นข้อความ
+    ส่วนรุ่นใหม่ส่งบูลีนจริง หน้าเว็บจึงต้องอ่านได้ทั้งสองแบบระหว่างที่ยังไม่ได้ deploy */
+const boolv = (v, d) => {
+  if (v === true || v === false) return v;
+  if (typeof v === 'number') return v !== 0;
+  const s = String(v == null ? '' : v).trim().toLowerCase();
+  if (s === 'true'  || s === 'yes' || s === 'y' || s === '1') return true;
+  if (s === 'false' || s === 'no'  || s === 'n' || s === '0') return false;
+  return !!d;
+};
 
 function mapUser(u) {
   const roles = [u.role].concat(String(u.secondary_roles || '').split(',').map(s => s.trim()).filter(Boolean));
@@ -7763,10 +7792,13 @@ function applyFramework(d) {
       const cf = cfgBy[y + '|' + c.id];
       const list = (indBy[y + '|' + c.id] || []).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
       config[c.id] = {
-        active: cf ? cf.is_active !== false : list.length > 0,
+        /* ค่านี้คือช่อง "เปิด" ที่ผู้ดูแลติ๊กไว้ในหน้าตั้งค่ากรอบสมรรถนะรายชั้นปี
+           ฝั่งผู้ประเมินใช้ตัดสินว่าสมรรถนะใดจะโผล่ในแบบประเมิน
+           ชั้นปีที่ยังไม่มีระเบียนเลย ให้ถือตามว่ามีตัวชี้วัดหรือไม่ */
+        active: cf ? boolv(cf.is_active, true) : list.length > 0,
         target: cf ? numOr(cf.target_level, ys.target) : ys.target,
 
-        test: {open: cf ? !!cf.exam_open : false,
+        test: {open: cf ? boolv(cf.exam_open, false) : false,
                n: cf ? (numOr(cf.exam_items, ITEMS_PER_COMP_DEF) || ITEMS_PER_COMP_DEF) : ITEMS_PER_COMP_DEF,
                min: cf ? (numOr(cf.exam_minutes, EXAM_MIN_DEF) || EXAM_MIN_DEF) : EXAM_MIN_DEF},
         indicators: list.map(i => ({
@@ -7795,10 +7827,44 @@ function applyFramework(d) {
   FW = {levels, competencies: comps, years,
         version: String(d.version || '—'), updatedAt: String(d.updated_at || '')};
   LIVE.fwLive = true;
-  S.fwSel = FW.competencies[0].id;
-  S.iqComp = FW.competencies[0].id;
+  LIVE.fwAt = Date.now();
+  /* คงรายการที่ผู้ใช้กำลังเปิดดูไว้ ถ้ายังมีอยู่ในกรอบชุดใหม่
+     จำเป็นเมื่อดึงกรอบซ้ำระหว่างใช้งาน จะได้ไม่เด้งกลับไปสมรรถนะแรกทุกครั้ง */
+  const keep = id => comps.some(c => c.id === id);
+  if (!keep(S.fwSel))  S.fwSel  = FW.competencies[0].id;
+  if (!keep(S.iqComp)) S.iqComp = FW.competencies[0].id;
   reindexQ();
   return true;
+}
+
+/*───────── 21.4ก. ดึงกรอบสมรรถนะซ้ำระหว่างใช้งาน ─────────
+   หน้าตั้งค่าบอกว่าการติ๊ก "เปิด" มีผลกับผู้ประเมินทุกคนทันที
+   แต่เดิมหน้าเว็บดึงกรอบสมรรถนะครั้งเดียวตอนเข้าสู่ระบบ ผู้ประเมินที่เปิดค้างไว้
+   จึงยังเห็นชุดเดิมจนกว่าจะออกแล้วเข้าใหม่ ทำให้ดูเหมือนตั้งค่าแล้วไม่มีผล
+   ดึงซ้ำเมื่อเปิดหน้าที่ใช้กรอบจริง และเมื่อกลับมาที่แท็บหลังสลับไปทำอย่างอื่น */
+const FW_REFRESH_MS = 45000;   // ไม่ดึงถี่กว่านี้ เพื่อไม่ให้เปลืองโควตาของ Apps Script
+async function refreshFramework(force) {
+  if (!liveOn() || LIVE.fwBusy) return false;
+  /* ผู้ที่กำลังแก้กรอบอยู่ต้องไม่ถูกเขียนทับด้วยค่าจากเซิร์ฟเวอร์กลางคัน
+     รวมถึงช่วงที่ยังมีคำสั่งบันทึกค้างอยู่ในคิวหน่วงเวลา */
+  if (S.page === 'framework' || S.page === 'itemq' || S.page === 'psychometrics') return false;
+  if (LIVE.busy || IND_BULK.length) return false;
+  if (Object.keys(LIVE_CFGTIMER).some(k => LIVE_CFGTIMER[k])) return false;
+  if (!force && LIVE.fwAt && Date.now() - LIVE.fwAt < FW_REFRESH_MS) return false;
+
+  LIVE.fwBusy = true;
+  try {
+    const before = JSON.stringify(FW.years.map(y => FW.competencies.map(c => cfgOf(FW, y.year, c.id).active)));
+    const d = await API.call('framework.get', {});
+    if (!d || !applyFramework(d)) return false;
+    const after = JSON.stringify(FW.years.map(y => FW.competencies.map(c => cfgOf(FW, y.year, c.id).active)));
+    if (before !== after) {
+      LIVE.info = 'ผู้ดูแลปรับสมรรถนะที่เปิดใช้ ระบบอัปเดตแบบประเมินให้แล้ว';
+      render();
+    }
+    return true;
+  } catch (e) { return false; }
+  finally { LIVE.fwBusy = false; }
 }
 
 /*───────── 21.5 คลังข้อสอบจากเซิร์ฟเวอร์ ─────────*/
@@ -8876,7 +8942,15 @@ function saveYearCfg(year, delay) {
     livePush('yearcfg.save',
       {items: items,
        year_meta: {year: y, label: yc.label, stage: yc.stage}},
-      `บันทึกการตั้งค่า${yc.label}ลงฐานข้อมูลแล้ว · เปิดใช้ ${on} จาก ${items.length} สมรรถนะ`);
+      `บันทึกการตั้งค่า${yc.label}ลงฐานข้อมูลแล้ว · เปิดใช้ ${on} จาก ${items.length} สมรรถนะ`,
+      /* ยืนยันด้วยจำนวนที่เซิร์ฟเวอร์นับได้จริงหลังบันทึก ไม่ใช่จำนวนที่หน้าเว็บคิดเอง
+         ถ้าสองค่าไม่ตรงกันแปลว่าบันทึกไม่ครบ ต้องบอกผู้ดูแลทันทีแทนที่จะขึ้นว่าสำเร็จ */
+      r => {
+        if (!r || r.active === undefined) return;
+        LIVE.info = Number(r.active) === on
+          ? `บันทึกการตั้งค่า${yc.label}ลงฐานข้อมูลแล้ว · เปิดใช้ ${r.active} จาก ${r.saved} สมรรถนะ · ผู้ประเมินจะเห็นตามนี้`
+          : `บันทึกแล้วแต่ฐานข้อมูลนับได้ ${r.active} สมรรถนะ ไม่ตรงกับ ${on} ที่ตั้งไว้ กรุณากดบันทึกอีกครั้ง`;
+      });
   }, delay === undefined ? 800 : delay);
 }
 
@@ -9172,6 +9246,12 @@ function aiDraggable(el,isHandle){
 }
 window.addEventListener("resize",()=>{
   ["aiwrap","aipanel"].forEach(id=>{ const el=document.getElementById(id); if(el&&el.style.display!=="none") aiApplyPos(el); });
+});
+
+/* กลับมาที่แท็บหลังสลับไปทำอย่างอื่น ให้ตรวจกรอบสมรรถนะอีกครั้ง
+   ผู้ประเมินมักเปิดหน้านี้ค้างไว้ทั้งวัน ถ้าไม่ตรวจซ้ำก็จะไม่เห็นสิ่งที่ผู้ดูแลเพิ่งเปลี่ยน */
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden && typeof refreshFramework==="function") refreshFramework();
 });
 
 /* ไอคอนเส้น (line icon) แบบเดียวกับชุดไอคอนสมัยใหม่ แทนการใช้ emoji
