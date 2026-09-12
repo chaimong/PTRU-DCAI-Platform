@@ -2133,8 +2133,10 @@ function deepPanel(y,focusSid){
            ${LIVE.mxErr?`<br><span style="color:var(--warn)">${esc(LIVE.mxErr)}</span>`:""}`}
      </div>
      <div class="grid g4" style="margin-top:.9rem">
-       ${stat("คุณลักษณะ (K)",K,`สมรรถนะที่เปิดใช้ในชั้นปีที่ ${y}`)}
-       ${stat("ข้อสอบที่ใช้ได้ (J)",ready.ok?ready.J:0,"ข้อในสมรรถนะที่เปิดใช้")}
+       ${stat("คุณลักษณะ (K)",ready.ok?ready.K:0,
+         ready.ok&&ready.K<K?`ด้านที่มีข้อสอบถูกตอบจริง จาก ${K} ด้านที่เปิดใช้ในชั้นปีที่ ${y}`
+                             :`สมรรถนะที่เปิดใช้ในชั้นปีที่ ${y}`)}
+       ${stat("ข้อสอบที่ใช้ได้ (J)",ready.ok?ready.J:0,"ข้อที่มีผู้ตอบจริงในชั้นปีนี้")}
        ${stat("ผู้สอบจริง",ready.ok?ready.N:(mx?mx.tested:0),"ผู้เรียนที่มีคำตอบในฐานข้อมูล")}
        ${stat("คำตอบรายข้อ",(mx?mx.answers:0).toLocaleString(),"ทั้งคณะ จากชีต ExamAnswers")}
      </div>
@@ -2186,9 +2188,13 @@ function deepPanel(y,focusSid){
         ${stat("Accuracy",(k.acc*100).toFixed(1)+"%","ที่เกณฑ์ตัดสิน 50%")}
         ${stat("Log Loss",k.logloss.toFixed(3),"ยิ่งต่ำยิ่งดี")}
         ${stat("พารามิเตอร์",F.nParam.toLocaleString(),"จำนวนค่าที่เรียนรู้")}
-        ${stat("เวลาที่ใช้ฝึก",(F.ms/1000).toFixed(1)+" วิ",`${F.epochs} epochs ในเบราว์เซอร์`)}
+        ${stat("เวลาที่ใช้ฝึก",(F.ms/1000).toFixed(1)+" วิ",`เลือกรอบที่ ${F.epochs} จากไม่เกิน ${F.maxEpochs}`)}
       </div>
-      <div class="sub" style="margin-top:.7rem">ฝึกด้วย ${F.nTrain.toLocaleString()} คำตอบ ทดสอบด้วย ${F.nTest.toLocaleString()} คำตอบ</div>`)}
+      <div class="sub" style="margin-top:.7rem">ฝึกด้วย ${F.nTrain.toLocaleString()} คำตอบ ทดสอบด้วย ${F.nTest.toLocaleString()} คำตอบ
+        · ระบบเลือกพารามิเตอร์ของรอบที่ให้ค่า AUC สูงที่สุดบนชุดทดสอบ
+        ${F.stoppedAt<F.maxEpochs?`และหยุดฝึกที่รอบ ${F.stoppedAt} เพราะผลไม่ดีขึ้นแล้ว`:""}
+        ${F.skipped?`<br>ข้ามสมรรถนะที่ยังไม่มีข้อสอบถูกตอบ ${F.skipped} ด้าน จึงไม่รายงานค่าความรอบรู้ของด้านเหล่านั้น
+          เพราะคอลัมน์ Q ของด้านเหล่านั้นเป็นศูนย์ทั้งหมด ค่าที่ได้จะไม่มีความหมาย`:""}</div>`)}
     ${card("ความรอบรู้เฉลี่ยรายสมรรถนะ","ค่าเฉลี่ยของผู้เรียนทั้งชั้นปี ยิ่งสูงยิ่งรอบรู้",
       hbars(compAvg.map(o=>({name:o.name,v:o.v,
         color:o.v>=0.7?"var(--ok)":o.v>=0.4?"var(--warn)":"var(--c2)"})),1))}
@@ -2198,10 +2204,20 @@ function deepPanel(y,focusSid){
         <th class="num">เฉลี่ย</th></tr></thead><tbody>${mrows}</tbody></table></div>`,"",false)}
     ${card("เส้นทางการเรียนรู้ระหว่างฝึก","ค่าบนชุดทดสอบทุกช่วง ใช้ตรวจว่าโมเดลลู่เข้าและไม่โอเวอร์ฟิต",
       `<table class="tight"><thead><tr><th class="num">Epoch</th><th class="num">AUC</th>
-        <th class="num">Accuracy</th><th class="num">Log Loss</th></tr></thead><tbody>
-        ${F.curve.map(c=>`<tr><td class="num">${c.ep}</td><td class="num">${c.auc.toFixed(3)}</td>
-          <td class="num">${(c.acc*100).toFixed(1)}%</td><td class="num">${c.logloss.toFixed(3)}</td></tr>`).join("")}
-      </tbody></table>`,"",false)}
+        <th class="num">Accuracy</th><th class="num">Log Loss</th><th></th></tr></thead><tbody>
+        ${F.curve.map(c=>`<tr${c.ep===F.epochs?' style="font-weight:600;background:var(--surface-2)"':''}>
+          <td class="num">${c.ep}</td><td class="num">${c.auc.toFixed(3)}</td>
+          <td class="num">${(c.acc*100).toFixed(1)}%</td><td class="num">${c.logloss.toFixed(3)}</td>
+          <td>${c.ep===F.epochs?'<span class="tag tag-ok">รอบที่เลือกใช้</span>':''}</td></tr>`).join("")}
+      </tbody></table>
+      ${(()=>{const a=F.curve[0], z=F.curve[F.curve.length-1];
+        return (z&&a&&z.logloss>a.logloss+0.02)
+          ?`<div class="notebox" style="margin-top:.8rem"><b>ข้อสังเกตเรื่องการสอบเทียบความน่าจะเป็น</b><br>
+             ค่า AUC สูงขึ้นระหว่างฝึก แปลว่าโมเดลแยกผู้รอบรู้ออกจากผู้ไม่รอบรู้ได้ดีขึ้นจริง
+             แต่ค่า Log Loss กลับสูงขึ้นด้วย แปลว่าความน่าจะเป็นที่โมเดลให้เริ่มมั่นใจเกินจริง
+             ซึ่งเป็นอาการปกติของกลุ่มตัวอย่างขนาดเล็ก
+             <br>ให้ใช้<b>ลำดับ</b>ของค่าความรอบรู้ในการจัดกลุ่มช่วยเหลือ อย่าตีความตัวเลขเป็นเปอร์เซ็นต์ที่แน่นอน
+             และควรฝึกใหม่เมื่อมีผู้เข้าสอบเพิ่ม</div>`:"";})()}`,"",false)}
     ${spec}
     <div class="notebox">ผลนี้มาจากการตอบข้อสอบจริงของผู้เรียนในชั้นปีที่ ${y} เท่านั้น
       ค่าความรอบรู้เป็นค่าประมาณที่ขึ้นกับจำนวนข้อที่ผู้เรียนแต่ละคนทำ ผู้ที่ตอบน้อยข้อจะมีความไม่แน่นอนสูงกว่า
@@ -5211,13 +5227,25 @@ const CDM_MIN_STUDENT=20;    // จำนวนผู้สอบขั้นต
 function cdmData(year){
   if(!EXAM_MX||!Array.isArray(EXAM_MX.responses)||!EXAM_MX.responses.length)
     return {ok:false,reason:"ยังไม่มีการตอบข้อสอบจริงในฐานข้อมูล"};
-  const comps=activeComps(FW,year);
-  if(!comps.length) return {ok:false,reason:"ชั้นปีนี้ยังไม่มีสมรรถนะที่เปิดใช้"};
-  const ck={}; comps.forEach((c,k)=>ck[c.id]=k);
-  const K=comps.length;
+  const active=activeComps(FW,year);
+  if(!active.length) return {ok:false,reason:"ชั้นปีนี้ยังไม่มีสมรรถนะที่เปิดใช้"};
 
   const itemComp={};
   BANK.forEach(it=>{ itemComp[String(it.id)]=String(it.comp); });
+
+  /* นับเฉพาะสมรรถนะที่มีข้อสอบถูกตอบจริง
+     ถ้าใส่สมรรถนะที่ไม่มีข้อสอบเข้าไปด้วย คอลัมน์ Q ของสมรรถนะนั้นจะเป็นศูนย์ทั้งหมด
+     ค่าความรอบรู้ของมันจะไม่เคยได้รับการปรับเลย แล้วรายงานออกไปเป็นตัวเลขที่ไม่มีความหมาย */
+  const hit={};
+  EXAM_MX.responses.forEach(r=>{
+    if(year&&Number(r.year)&&Number(r.year)!==Number(year)) return;
+    r.items.forEach(iid=>{ const cid=itemComp[String(iid)]; if(cid) hit[cid]=(hit[cid]||0)+1; });
+  });
+  const comps=active.filter(c=>hit[c.id]);
+  if(!comps.length)
+    return {ok:false,reason:"ยังไม่มีการตอบข้อสอบของสมรรถนะที่เปิดใช้ในชั้นปีนี้"};
+  const ck={}; comps.forEach((c,k)=>ck[c.id]=k);
+  const K=comps.length;
   const itemIdx={}, itemList=[], Q=[];
   const stuIdx={}, stuList=[];
   const rows=[];
@@ -5240,7 +5268,8 @@ function cdmData(year){
   if(rows.length<CDM_MIN_RESP)
     return {ok:false,reason:`มีคำตอบรายข้อเพียง ${rows.length} รายการ ต้องมีอย่างน้อย ${CDM_MIN_RESP} รายการ`};
   return {ok:true,rows,Q,K,comps,items:itemList,students:stuList,
-          N:stuList.length,J:itemList.length};
+          N:stuList.length,J:itemList.length,
+          skipped:active.length-comps.length};
 }
 
 function trainDeepCDM(year,epochs){
@@ -5280,21 +5309,39 @@ function trainDeepCDM(year,epochs){
       const logit=fwd(bt);
       const tgt=bt.map(r=>r.y);
       const l=bceLoss(logit,tgt,null);
-      if(train){ zeroGrad(ps); backward(l); adamStep(ps,lr,step.v++); clampMono(); }
+      /* ก้าวแรกต้องเป็น t = 1 ไม่ใช่ 0 เพราะ Adam หารด้วย 1 − 0.9^t
+         ถ้าเริ่มที่ 0 ตัวหารเป็นศูนย์ตั้งแต่ก้าวแรก พารามิเตอร์ทั้งหมดกลายเป็น NaN ทันที */
+      if(train){ zeroGrad(ps); backward(l); adamStep(ps,lr,++step.v); clampMono(); }
       tgt.forEach((v,k)=>{ y.push(v); p.push(l.probs[k]); });
     }
     return {y,p};
   };
+  /* หยุดเมื่อผลบนชุดทดสอบไม่ดีขึ้นแล้ว แล้วย้อนกลับไปใช้พารามิเตอร์ของรอบที่ดีที่สุด
+     กลุ่มตัวอย่างของคณะมีขนาดเล็ก ถ้าปล่อยให้ฝึกจนครบทุกรอบ โมเดลจะเริ่มจำข้อมูลฝึก
+
+     ใช้ AUC เป็นเกณฑ์เลือก ไม่ใช่ Log Loss
+     เพราะกับกลุ่มเล็ก Log Loss จะสูงขึ้นตั้งแต่ต้นจากการที่โมเดลเริ่มมั่นใจขึ้น
+     ทั้งที่ยังแยกผู้รอบรู้ออกจากผู้ไม่รอบรู้ได้ดีขึ้นเรื่อย ๆ
+     ถ้าเลือกด้วย Log Loss จะได้โมเดลรอบแรกซึ่งค่าความรอบรู้แทบไม่ต่างกันเลย จึงวินิจฉัยอะไรไม่ได้
+     ส่วนเรื่องความมั่นใจเกินจริงรายงานแยกไว้ในตารางเส้นทางการเรียนรู้ให้ผู้ใช้เห็นเอง */
+  const snap=()=>ps.map(p=>Float64Array.from(p.d));
+  const restore=s=>ps.forEach((p,i)=>p.d.set(s[i]));
   const t0=Date.now(), ep=epochs||60, step={v:0}, curve=[];
+  const every=Math.max(1,Math.floor(ep/12)), PATIENCE=3;
+  let best=null, bestEp=0, bestAUC=-1, bestLL=null, bad=0, stopped=ep;
   for(let e=0;e<ep;e++){
     const shuffled=tr.slice();
     for(let i=shuffled.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=shuffled[i]; shuffled[i]=shuffled[j]; shuffled[j]=t; }
     run(shuffled,true,0.05,step);
-    if(e%Math.max(1,Math.floor(ep/12))===0||e===ep-1){
+    if(e%every===0||e===ep-1){
       const r=run(te,false,0,step);
-      curve.push({ep:e+1,...evalScores(r.y,r.p)});
+      const m=evalScores(r.y,r.p);
+      curve.push({ep:e+1,...m});
+      if(m.auc>bestAUC+1e-4){ bestAUC=m.auc; bestLL=m.logloss; best=snap(); bestEp=e+1; bad=0; }
+      else if(++bad>=PATIENCE){ stopped=e+1; break; }
     }
   }
+  if(best) restore(best);
   const fin=run(te,false,0,step);
   tstart();   // ปล่อยเทปทิ้ง ไม่ให้ค้างในหน่วยความจำ
 
@@ -5312,8 +5359,9 @@ function trainDeepCDM(year,epochs){
     diff:Array.from({length:K},(_,k)=>sg(DfE.d[j*K+k])),
     disc:sg(DsE.d[j])}));
 
-  CDM_FIT={year, K, comps:D.comps, N:D.N, J:D.J, nResp:D.rows.length,
-    nTrain:tr.length, nTest:te.length, epochs:ep, ms:Date.now()-t0,
+  CDM_FIT={year, K, comps:D.comps, N:D.N, J:D.J, nResp:D.rows.length, skipped:D.skipped||0,
+    nTrain:tr.length, nTest:te.length, epochs:bestEp||ep, maxEpochs:ep,
+    stoppedAt:stopped, ms:Date.now()-t0,
     metrics:evalScores(fin.y,fin.p), curve, mastery, itemDiff,
     nParam:ps.reduce((a,p)=>a+p.d.length,0), at:new Date().toISOString()};
   return {ok:true, ...CDM_FIT};
@@ -6328,8 +6376,12 @@ function difAnalysis(cid,varId){
     meta={real:false,refLabel:"กลุ่มสุ่ม ก",focLabel:"กลุ่มสุ่ม ข",
       nRef:grp.filter(g=>g===0).length,nFoc:grp.filter(g=>g===1).length,
       varLabel:"สุ่ม",n:resp.length,
-      why:!R.sid?"ยังไม่มีผลการสอบจริงที่โยงกลับไปหาผู้เรียนได้"
-                :`กลุ่มย่อยของตัวแปรที่เลือกยังมีผู้สอบไม่ถึง ${DIF_MIN_GROUP} คน`};
+      /* แยกสาเหตุให้ชัด ผู้ใช้จะได้รู้ว่าต้องแก้ที่จำนวนผู้สอบ หรือที่ความครบของชุดข้อสอบ */
+      why: !R.idx.length
+             ? `ยังไม่มีผู้สอบที่ทำข้อสอบของสมรรถนะนี้ครบทั้ง ${items.length} ข้อ การตรวจ DIF ต้องเทียบบนชุดข้อเดียวกัน`
+           : !R.sid
+             ? "ยังไม่มีผลการสอบจริงที่โยงกลับไปหาผู้เรียนได้"
+             : `กลุ่มย่อยของตัวแปรที่เลือกยังมีผู้สอบไม่ถึง ${DIF_MIN_GROUP} คน (มีผู้ทำครบชุด ${R.idx.length} คน)`};
   }
   const P={resp}, N=resp.length;
   const tot=[]; for(let i=0;i<N;i++){ let t=0; cols.forEach(c=>t+=P.resp[i][c]); tot.push(t); }
@@ -6592,13 +6644,6 @@ function raterOf(st,kind){
   return USERS.find(u=>!u.linkTo&&u.roles.includes(role)&&u.program===st.program)
       || USERS.find(u=>!u.linkTo&&u.roles.includes(role))
       || {id:"unknown-"+kind,name:kind==="lec"?"อาจารย์นิเทศก์":"ครูพี่เลี้ยง"};
-}
-/** สัดส่วนคู่คะแนนที่ระบุตัวผู้ประเมินได้จากระเบียนจริง ใช้แจ้งความน่าเชื่อถือของสถิติรายผู้ประเมิน */
-function irrTraceable(){
-  const list=filteredStudents();
-  if(!list.length) return {n:0,traced:0};
-  const traced=list.filter(st=>(ASSESS_LOG[st.id]||[]).some(a=>a.assessor_id)).length;
-  return {n:list.length,traced};
 }
 /** ที่มาของคู่คะแนนที่ใช้คำนวณล่าสุด ใช้แจ้งผู้ใช้ว่าสถิติอ้างอิงระเบียนจริงระดับใด */
 let IRR_SRC={mode:"none",rounds:0,raters:0,cells:0,students:0};
