@@ -8164,6 +8164,9 @@ document.addEventListener("click",e=>{
          ดึงตอนเปิดหน้าด้วย เผื่อการดึงเบื้องหลังตอนเข้าสู่ระบบยังไม่เสร็จหรือล้มเหลว */
       if(["edm","xai","itemq","psychometrics","irr","diagnostic"].includes(v)&&!EXAM_MX)
         loadExamMatrix().then(d=>{ if(d) render(); });
+      /* คลังข้อสอบไม่ถูกดึงตอนเข้าระบบแล้ว จึงดึงตอนเปิดหน้าที่ต้องใช้ */
+      if(["itemq","exam","framework"].includes(v)&&!LIVE.bankLive)
+        loadItemBank().then(ok=>{ if(ok) render(); });
       break;
 
     /* --- ผู้ใช้งาน --- */
@@ -8850,6 +8853,8 @@ const LIVE = {
   fwBusy   : false,              // กำลังดึงกรอบสมรรถนะซ้ำอยู่
   mxBusy   : false,              // กำลังดึงเมทริกซ์การตอบข้อสอบจริง
   mxErr    : '',                 // เหตุผลที่ดึงเมทริกซ์ไม่สำเร็จ
+  bankBusy : false,              // กำลังดึงคลังข้อสอบจากฐานข้อมูล
+  dataLoading: false,            // เปิดหน้าจอแล้ว แต่ผลการประเมินยังโหลดอยู่เบื้องหลัง
   bankLive : false,
   queue    : [],                 // งานเขียนที่ล้มเหลว รอส่งซ้ำ
   intent   : null,
@@ -9163,13 +9168,21 @@ async function liveHydrate() {
        Apps Script ตอบแต่ละคำขอหลายวินาที การเรียงกันจึงบวกเวลากันตรง ๆ
        assess.bulk คัดนักศึกษาตามสิทธิ์ที่ฝั่งเซิร์ฟเวอร์เอง จึงไม่ต้องรอรายชื่อผู้ใช้ก่อน
        เวลารวมจึงเท่ากับคำขอที่ช้าที่สุดเพียงคำขอเดียว แทนที่จะเป็นผลบวกของทุกคำขอ */
-    loaderSet(62, 'กำลังโหลดข้อมูลทั้งหมดพร้อมกัน');
-    const [bootRes, bulkRes, evRes, examRes] = await Promise.all([
-      API.call('boot.data', {}).catch(e => ({__err: e})),
+    /* ผลการประเมินรายบุคคลเป็นก้อนที่ใหญ่และช้าที่สุด (ผู้ดูแลได้ทั้งคณะ)
+       ยิงออกไปก่อนให้วิ่งคู่ขนาน แต่ไม่รอ เพราะแดชบอร์ดวาดได้ด้วยกรอบสมรรถนะกับรายชื่อผู้ใช้
+       ผู้ใช้จึงเข้าถึงหน้าจอได้เร็วขึ้นมาก แล้วตัวเลขคะแนนค่อยเติมเข้ามาเมื่อข้อมูลถึง */
+    const heavy = Promise.all([
       API.call('assess.bulk', {}).catch(() => null),
       isStudent ? API.call('evidence.list', {student_id: me.id}).catch(() => null) : Promise.resolve(null),
       isStudent ? API.call('exam.results', {student_id: me.id}).catch(() => null) : Promise.resolve(null),
     ]);
+
+    /* นักศึกษาเห็นเฉพาะชั้นปีตนเอง จึงขอกรอบสมรรถนะเฉพาะชั้นปีนั้น
+       ลดขนาดคำตอบจาก 684 กิโลไบต์เหลือราว 173 กิโลไบต์
+       ผู้ประเมินดูแลผู้เรียนหลายชั้นปีจึงต้องได้ครบทุกชั้นปีเหมือนเดิม */
+    loaderSet(62, 'กำลังโหลดกรอบสมรรถนะและรายชื่อผู้ใช้');
+    const bootRes = await API.call('boot.data',
+      {light: true, fw_year: isStudent && me.year ? me.year : 0}).catch(e => ({__err: e}));
 
     let boot = bootRes;
     if (boot && boot.__err) {
@@ -9203,49 +9216,58 @@ async function liveHydrate() {
     LIVE.deep.clear(); LIVE.evLoaded.clear();
     EVIDENCE = []; PENDING = [];
 
-    /* 4) ข้อมูลของผู้ดูแลและผู้บริหาร มาพร้อม boot.data แล้ว */
+    /* 4) คำขอสมัครมาพร้อม boot.data · คลังข้อสอบไม่ดึงตอนเข้าระบบแล้ว
+       ItemBank มี 510 ข้อพร้อมโจทย์และตัวเลือกครบทุกข้อ เป็นก้อนใหญ่ที่หน้าส่วนใหญ่ไม่ได้ใช้
+       ย้ายไปดึงตอนเปิดหน้าคุณภาพข้อสอบ รายการข้อสอบ หรือแบบทดสอบ */
     PENDING = ((boot && boot.registrations) || []).map(mapReg);
     const items = (boot && boot.items) || [];
     if (items.length) applyItems(items);
-    else if (!LIVE.bankLive) { BANK = buildBank(); bankChanged(); }
 
-    /* 5) ผลรายตัวชี้วัด ต้องทำหลังใส่กรอบสมรรถนะ เพราะการรวมคะแนนใช้จำนวนระดับจากกรอบ */
-    loaderSet(84, 'กำลังประมวลผลการประเมิน');
     const role = S.role;
-    let bulkOk = 0;
-    if (bulkRes && bulkRes.students) {
-      Object.keys(bulkRes.students).forEach(sid => {
-        applyAssessments(sid, bulkRes.students[sid]);
-        bulkOk++;
-      });
-    }
-    if (evRes) applyEvidenceRows(me.id, evRes.evidence);
-    if (examRes) applyExamRows(me.id, examRes);
-
-    /* ถ้า assess.bulk ใช้ไม่ได้ (เซิร์ฟเวอร์รุ่นก่อน) ค่อยถอยไปวิธีเดิม */
-    if (!bulkOk) {
-      if (role === 'Student') await Promise.all([liveStudent(me.id, true), liveExamResults(me.id)]);
-      else if (LIVE_CFG.autoDeep) liveSyncAll();
-    }
+    /* 5) เปิดหน้าจอให้ใช้งานทันทีที่ได้กรอบสมรรถนะกับรายชื่อผู้ใช้
+       ไม่ต้องรอผลการประเมินซึ่งเป็นก้อนที่ช้าที่สุด ตัวเลขคะแนนจะเติมเข้ามาเองเมื่อข้อมูลถึง */
+    LIVE.dataLoading = true;
     loaderSet(95, 'เตรียมหน้าจอ');
     render();
 
-    /* 6ก) เมทริกซ์การตอบข้อสอบจริงไม่ดึงตอนเข้าสู่ระบบแล้ว
-       เดิมดึงทุกครั้งที่ผู้ดูแลหรือผู้ประเมินเข้าระบบ ทั้งที่หน้าส่วนใหญ่ไม่ได้ใช้
-       เป็นคำขอเพิ่มอีกหนึ่งรอบที่อ่าน ExamAnswers ทั้งชีต ทำให้การเข้าใช้งานหนักขึ้นโดยเปล่าประโยชน์
-       ย้ายไปดึงตอนเปิดหน้าที่ใช้จริง (EDM, XAI, คุณภาพข้อสอบ, โมเดลวัดผล, ความสอดคล้อง)
-       ซึ่งทำอยู่แล้วในตัวจัดการเมนู และมีปุ่มให้ดึงเองได้ */
+    heavy.then(([bulkRes, evRes, examRes]) => {
+      let bulkOk = 0;
+      if (bulkRes && bulkRes.students) {
+        Object.keys(bulkRes.students).forEach(sid => {
+          applyAssessments(sid, bulkRes.students[sid]);
+          bulkOk++;
+        });
+      }
+      if (evRes) applyEvidenceRows(me.id, evRes.evidence);
+      if (examRes) applyExamRows(me.id, examRes);
+      LIVE.dataLoading = false;
+      /* assess.bulk ใช้ไม่ได้ (เซิร์ฟเวอร์รุ่นก่อน) ค่อยถอยไปวิธีเดิม */
+      if (!bulkOk) {
+        if (role === 'Student') Promise.all([liveStudent(me.id, true), liveExamResults(me.id)]).then(render);
+        else if (LIVE_CFG.autoDeep) liveSyncAll();
+      }
+      render();
+    }).catch(() => { LIVE.dataLoading = false; render(); });
 
-    /* 6) คลังข้อสอบว่างเปล่า ค่อยซิงก์ชุดตั้งต้นทีหลัง ไม่ให้ขวางการเข้าใช้งาน */
-    const staff = ['Administrator', 'Program Chair'].includes(role);
-    if (staff && !items.length) {
+    /* 6) คลังข้อสอบยังว่าง และผู้ดูแลมีสิทธิ์ซิงก์ชุดตั้งต้น ทำเบื้องหลังไม่ให้ขวางการใช้งาน */
+    if (['Administrator', 'Program Chair'].includes(role) && !items.length && !LIVE.bankLive) {
       BANK = buildBank(); bankChanged();
-      syncAllItemsToSheet(false).then(ok => {
-        if (!ok) LIVE.info = 'ไม่สามารถซิงก์คลังข้อสอบชุดตั้งต้นลง ItemBank ได้';
-        render();
-      });
     }
   } finally { liveBusy(-1); }
+}
+
+/** ดึงคลังข้อสอบจากฐานข้อมูลเมื่อเปิดหน้าที่ต้องใช้จริง
+    เรียกครั้งเดียวแล้วเก็บไว้ เหมือนกับเมทริกซ์การตอบข้อสอบ */
+async function loadItemBank(force) {
+  if (!liveOn()) return false;
+  if (LIVE.bankLive && !force) return true;
+  if (LIVE.bankBusy) return false;
+  LIVE.bankBusy = true; liveBusy(1);
+  try {
+    const r = await API.call('item.list', {});
+    return applyItems((r && r.items) || []);
+  } catch (e) { return false; }
+  finally { LIVE.bankBusy = false; liveBusy(-1); }
 }
 
 function mapReg(r) {
@@ -9813,7 +9835,17 @@ function maintenanceBanner() {
           ' ท่านยังทำงานได้ตามปกติ ปิดโหมดได้ที่เมนูซ่อมบำรุงฐานข้อมูล'
         : esc(mt.message || 'กรุณาลองใหม่อีกครั้งภายหลัง')}</div>`;
 }
-view = function () { return maintenanceBanner() + viewBase() + liveBadge(); };
+/** แถบแจ้งว่าเปิดหน้าจอให้ใช้งานแล้ว แต่ผลการประเมินยังโหลดอยู่เบื้องหลัง
+    ต้องมีเพราะระบบไม่รอข้อมูลก้อนนี้ก่อนปิดหน้าจอโหลดอีกต่อไป
+    ถ้าไม่บอก ผู้ใช้จะเห็นคะแนนเป็นขีดแล้วเข้าใจว่าไม่มีข้อมูล */
+function dataLoadingBanner() {
+  if (!LIVE.dataLoading) return '';
+  return `<div style="position:fixed;left:50%;transform:translateX(-50%);bottom:1rem;z-index:205;
+      padding:.5rem .95rem;border-radius:999px;background:var(--accent-soft);color:var(--accent-fg);
+      border:1px solid var(--accent);font-size:.8rem;box-shadow:0 4px 14px rgba(0,0,0,.12)">
+    ⏳ กำลังโหลดผลการประเมินจากฐานข้อมูล · ใช้งานเมนูอื่นได้ตามปกติ</div>`;
+}
+view = function () { return maintenanceBanner() + dataLoadingBanner() + viewBase() + liveBadge(); };
 
 /* หน้าจอเข้าสู่ระบบในโหมดจริงไม่ควรแนะนำรหัสผ่านสาธิต */
 const loginViewBase = loginView;
