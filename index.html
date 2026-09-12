@@ -7506,7 +7506,7 @@ function ensureAppStyles(){
    แทนแถบแจ้งเตือนเดิม เพราะการเข้าสู่ระบบใช้เวลาหลายวินาที
    เปอร์เซ็นต์ผูกกับขั้นตอนจริงที่ทำเสร็จแล้ว ไม่ใช่ตัวเลขที่วิ่งเองตามเวลา
    ผู้ใช้จึงรู้ว่าระบบค้างอยู่ที่ขั้นใดหากช้าผิดปกติ */
-const LOADER={pct:0,stage:""};
+const LOADER={pct:0,target:0,stage:"",t0:0,timer:null,tick:null};
 /* ระยะเวลาที่ปล่อยให้ข้อความ กำลังออกจากระบบ ค้างอยู่ก่อนแจ้งผลสำเร็จ
    การออกจากระบบเองเสร็จทันที ค่านี้จึงมีไว้ให้ผู้ใช้อ่านข้อความทัน ไม่ได้ถ่วงการทำงาน */
 const LOGOUT_NOTICE_MS=550;
@@ -7536,25 +7536,56 @@ function loaderShow(title){
       <h3 id="ld-title">กำลังเข้าสู่ระบบ...</h3>
       <p>กรุณารอสักครู่</p>
       <div class="stage" id="ld-stage"></div>
+      <div class="stage" id="ld-wait" style="opacity:.72;font-size:.78rem;margin-top:.35rem"></div>
     </div>`;
     document.body.appendChild(el);
   }
   el.style.display="flex";
   if(title){ const h=document.getElementById("ld-title"); if(h) h.textContent=title; }
+  LOADER.t0=Date.now();
+  clearInterval(LOADER.tick);
+  LOADER.tick=setInterval(loaderPaint,1000);   // เดินนาฬิกาให้เห็นว่ายังทำงานอยู่
   loaderSet(0,"");
 }
 function loaderSet(pct,stage){
   LOADER.pct=clamp(Math.round(pct),0,100);
+  LOADER.target=LOADER.pct;
   if(stage!==undefined) LOADER.stage=stage;
-  const p=document.getElementById("ld-pct"), a=document.getElementById("ld-arc"), s=document.getElementById("ld-stage");
+  loaderPaint();
+  loaderCreep();
+}
+function loaderPaint(){
+  const p=document.getElementById("ld-pct"), a=document.getElementById("ld-arc"),
+        s=document.getElementById("ld-stage"), w=document.getElementById("ld-wait");
   if(p) p.textContent=LOADER.pct+"%";
   if(a) a.setAttribute("stroke-dashoffset",String(289-289*LOADER.pct/100));
   if(s) s.textContent=LOADER.stage||"";
+  if(w){
+    const sec=LOADER.t0?Math.round((Date.now()-LOADER.t0)/1000):0;
+    /* Apps Script ใช้เวลาราวสามวินาทีต่อคำขอก่อนโค้ดจะเริ่มทำงาน
+       ถ้าไม่บอกเวลาที่ผ่านไป ผู้ใช้จะเข้าใจว่าหน้าจอค้าง แล้วกดซ้ำหรือปิดทิ้ง */
+    w.textContent = sec<2 ? "" :
+      (sec<12 ? `ผ่านไป ${sec} วินาที · ฐานข้อมูล Google Sheets ใช้เวลาตอบราว 3 ถึง 8 วินาทีต่อคำขอ`
+              : `ผ่านไป ${sec} วินาที · ยังทำงานอยู่ ไม่ต้องกดซ้ำหรือปิดหน้านี้`);
+  }
+}
+/* เดินเปอร์เซ็นต์ทีละน้อยระหว่างรอคำตอบ ให้เห็นว่าระบบยังทำงานอยู่
+   ไม่เดินเกินขั้นถัดไป จึงไม่หลอกว่าเสร็จแล้วทั้งที่ยังไม่เสร็จ */
+const LOADER_NEXT={0:6,8:42,45:58,60:61,62:82,84:94,95:99};
+function loaderCreep(){
+  clearInterval(LOADER.timer);
+  const cap=LOADER_NEXT[LOADER.target];
+  if(cap===undefined||LOADER.pct>=cap) return;
+  LOADER.timer=setInterval(()=>{
+    if(LOADER.pct>=cap){ clearInterval(LOADER.timer); return; }
+    LOADER.pct++; loaderPaint();
+  },Math.max(120,Math.round(2600/Math.max(1,cap-LOADER.pct))));
 }
 function loaderHide(){
   const el=document.getElementById("loadscreen");
   if(!el) return;
-  loaderSet(100,"เสร็จสมบูรณ์");
+  clearInterval(LOADER.timer); clearInterval(LOADER.tick);
+  LOADER.pct=100; LOADER.target=100; LOADER.stage="เสร็จสมบูรณ์"; loaderPaint();
   setTimeout(()=>{ el.style.opacity="0"; setTimeout(()=>{ el.style.display="none"; el.style.opacity=""; },180); },220);
 }
 
@@ -8736,7 +8767,15 @@ async function liveBootLegacy() {
   return {framework, users, registrations, items, skipped: []};
 }
 
-async function liveHydrate() {
+/** โหลดข้อมูลทั้งหมดหลังยืนยันตัวตน
+    pre คือชุดข้อมูลที่ auth.login หรือ auth.me แนบกลับมาให้แล้วในคำขอเดียวกัน
+    {boot, assess, evidence, exam} ส่วนใดมีก็ข้ามการเรียกซ้ำของส่วนนั้น
+
+    วัดจากเซิร์ฟเวอร์จริง ค่าโสหุ้ยต่อหนึ่งคำขอของ Apps Script คือราว 4 วินาที
+    เดิมเข้าสู่ระบบเสียค่าโสหุ้ยสองรอบ (ยืนยันตัวตนรอบหนึ่ง แล้วโหลดข้อมูลอีกรอบหนึ่ง)
+    เมื่อได้ทุกอย่างมาพร้อมกันจึงเหลือรอบเดียว */
+async function liveHydrate(pre) {
+  const preBoot = pre && pre.boot;
   liveBusy(1);
   try {
     const me = S.user;
@@ -8748,13 +8787,19 @@ async function liveHydrate() {
        Apps Script ตอบแต่ละคำขอหลายวินาที การเรียงกันจึงบวกเวลากันตรง ๆ
        assess.bulk คัดนักศึกษาตามสิทธิ์ที่ฝั่งเซิร์ฟเวอร์เอง จึงไม่ต้องรอรายชื่อผู้ใช้ก่อน
        เวลารวมจึงเท่ากับคำขอที่ช้าที่สุดเพียงคำขอเดียว แทนที่จะเป็นผลบวกของทุกคำขอ */
-    loaderSet(62, 'กำลังโหลดข้อมูลทั้งหมดพร้อมกัน');
-    const [bootRes, bulkRes, evRes, examRes] = await Promise.all([
-      API.call('boot.data', {}).catch(e => ({__err: e})),
-      API.call('assess.bulk', {}).catch(() => null),
-      isStudent ? API.call('evidence.list', {student_id: me.id}).catch(() => null) : Promise.resolve(null),
-      isStudent ? API.call('exam.results', {student_id: me.id}).catch(() => null) : Promise.resolve(null),
+    /* ส่วนใดได้มาพร้อมคำตอบของการยืนยันตัวตนแล้ว ก็ไม่ต้องยิงซ้ำ
+       ที่เหลือยิงพร้อมกันทั้งหมด เวลารวมจึงเท่ากับคำขอที่ช้าที่สุดเพียงคำขอเดียว */
+    const heavy = Promise.all([
+      (pre && pre.assess) ? Promise.resolve(pre.assess) : API.call('assess.bulk', {}).catch(() => null),
+      (pre && pre.evidence) ? Promise.resolve(pre.evidence)
+        : (isStudent ? API.call('evidence.list', {student_id: me.id}).catch(() => null) : Promise.resolve(null)),
+      (pre && pre.exam) ? Promise.resolve(pre.exam)
+        : (isStudent ? API.call('exam.results', {student_id: me.id}).catch(() => null) : Promise.resolve(null)),
     ]);
+
+    loaderSet(62, preBoot ? 'กำลังเตรียมกรอบสมรรถนะและรายชื่อผู้ใช้' : 'กำลังโหลดข้อมูลทั้งหมดพร้อมกัน');
+    const bootRes = preBoot ? preBoot
+      : await API.call('boot.data', {}).catch(e => ({__err: e}));
 
     let boot = bootRes;
     if (boot && boot.__err) {
@@ -8794,9 +8839,10 @@ async function liveHydrate() {
     if (items.length) applyItems(items);
     else if (!LIVE.bankLive) { BANK = buildBank(); bankChanged(); }
 
-    /* 5) ผลรายตัวชี้วัด มาพร้อมรอบเดียวกันแล้ว เหลือเพียงนำมาใช้
-       ต้องทำหลังใส่กรอบสมรรถนะ เพราะการรวมคะแนนใช้จำนวนระดับจากกรอบ */
-    loaderSet(84, 'กำลังประมวลผลการประเมิน');
+    /* 5) ผลรายตัวชี้วัด ต้องทำหลังใส่กรอบสมรรถนะ เพราะการรวมคะแนนใช้จำนวนระดับจากกรอบ */
+    loaderSet(84, 'กำลังรอผลการประเมินจากฐานข้อมูล');
+    const role = S.role;
+    const [bulkRes, evRes, examRes] = await heavy;
     let bulkOk = 0;
     if (bulkRes && bulkRes.students) {
       Object.keys(bulkRes.students).forEach(sid => {
@@ -8808,7 +8854,6 @@ async function liveHydrate() {
     if (examRes) applyExamRows(me.id, examRes);
 
     /* ถ้า assess.bulk ใช้ไม่ได้ (เซิร์ฟเวอร์รุ่นก่อน) ค่อยถอยไปวิธีเดิม */
-    const role = S.role;
     if (!bulkOk) {
       if (role === 'Student') await Promise.all([liveStudent(me.id, true), liveExamResults(me.id)]);
       else if (LIVE_CFG.autoDeep) liveSyncAll();
@@ -9077,10 +9122,16 @@ async function liveLogin(email, pw) {
   try {
 
     /* 1. Authentication */
+    /* ขอข้อมูลตั้งต้นกลับมาพร้อมการยืนยันตัวตนในคำขอเดียว
+       Apps Script มีค่าโสหุ้ยราวสามวินาทีต่อหนึ่งคำขอก่อนโค้ดจะเริ่มทำงาน
+       การรวมสองคำขอเป็นคำขอเดียวจึงตัดเวลารอไปได้ราวหนึ่งรอบเต็ม
+       เซิร์ฟเวอร์รุ่นก่อนที่ยังไม่รู้จัก with_boot จะไม่ส่ง boot กลับมา
+       หน้าเว็บก็ถอยไปเรียก boot.data เองตามเดิม จึงยังใช้งานได้ทั้งสองรุ่น */
     const r = await API.call('auth.login', {
       email,
       password: pw,
-      ua: navigator.userAgent
+      ua: navigator.userAgent,
+      with_boot: true
     });
     loaderSet(45, 'ยืนยันตัวตนสำเร็จ กำลังเตรียมสิทธิ์การใช้งาน');
 
@@ -9115,9 +9166,10 @@ async function liveLogin(email, pw) {
           ผู้ใช้จึงเห็นแดชบอร์ดที่มีข้อมูลครบตั้งแต่ครั้งแรก
           ไม่ใช่หน้าว่างที่ค่อย ๆ เติมข้อมูลเข้ามาทีหลัง */
     liveBusy(-1);
-    loaderSet(60, 'กำลังโหลดกรอบสมรรถนะและรายชื่อผู้ใช้');
+    loaderSet(60, r.boot ? 'ได้ข้อมูลทั้งหมดมาพร้อมกันแล้ว กำลังประมวลผล'
+                         : 'กำลังโหลดกรอบสมรรถนะและรายชื่อผู้ใช้');
 
-    try { await liveHydrate(); }
+    try { await liveHydrate(r); }
     catch (err) {
       console.warn('[PTRU] liveHydrate failed:', err);
       S.notice = 'เข้าสู่ระบบสำเร็จ แต่โหลดข้อมูลบางส่วนไม่สำเร็จ กดปุ่มซิงก์ข้อมูลเพื่อลองใหม่';
@@ -9915,14 +9967,14 @@ async function liveConnect(retry) {
     loaderSet(15, 'ตรวจสอบเซสชันเดิมกับฐานข้อมูล');
     render();
     try {
-      const me = await API.call('auth.me', {});
+      const me = await API.call('auth.me', {with_boot: true});
       const u = mapUser(me.user);
       if (Array.isArray(me.roles) && me.roles.length) u.roles = me.roles.filter(Boolean);
       LIVE.on = true; LIVE.checking = false; LIVE.session = true; LIVE.err = '';
       S.user = u; S.role = me.active_role || u.roles[0]; S.page = 'dashboard';
-      loaderSet(55, 'กำลังโหลดข้อมูลของท่าน');
+      loaderSet(55, me.boot ? 'ได้ข้อมูลตั้งต้นมาพร้อมกันแล้ว' : 'กำลังโหลดข้อมูลของท่าน');
       render();
-      try { await liveHydrate(); } catch (e) { console.warn('[PTRU] hydrate:', e); }
+      try { await liveHydrate(me); } catch (e) { console.warn('[PTRU] hydrate:', e); }
       loaderHide(); render();
       liveConnect(false);        // ตรวจสภาพระบบต่อเบื้องหลัง ไม่ให้ขวางการใช้งาน
       return;
