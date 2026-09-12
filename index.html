@@ -8499,6 +8499,10 @@ const boolv = (v, d) => {
 };
 
 function mapUser(u) {
+  /* กันแถวที่ผิดรูปหรือค่าว่างไม่ให้ทำให้การเข้าสู่ระบบล้มทั้งกระบวนการ
+     เดิมถ้ามีแถวใดเป็น undefined จะได้ข้อความ Cannot read properties of undefined (reading 'role')
+     ซึ่งไม่บอกว่าเกิดที่ใด ผู้ใช้จึงแก้อะไรไม่ได้ ตอนนี้ข้ามแถวนั้นแล้วทำงานต่อ */
+  if (!u || typeof u !== 'object') return null;
   const roles = [u.role].concat(String(u.secondary_roles || '').split(',').map(s => s.trim()).filter(Boolean));
   const name = String(u.name || [u.first_name, u.last_name].filter(Boolean).join(' ')).trim();
   return {
@@ -8768,14 +8772,10 @@ async function liveBootLegacy() {
 }
 
 /** โหลดข้อมูลทั้งหมดหลังยืนยันตัวตน
-    pre คือชุดข้อมูลที่ auth.login หรือ auth.me แนบกลับมาให้แล้วในคำขอเดียวกัน
-    {boot, assess, evidence, exam} ส่วนใดมีก็ข้ามการเรียกซ้ำของส่วนนั้น
-
-    วัดจากเซิร์ฟเวอร์จริง ค่าโสหุ้ยต่อหนึ่งคำขอของ Apps Script คือราว 4 วินาที
-    เดิมเข้าสู่ระบบเสียค่าโสหุ้ยสองรอบ (ยืนยันตัวตนรอบหนึ่ง แล้วโหลดข้อมูลอีกรอบหนึ่ง)
-    เมื่อได้ทุกอย่างมาพร้อมกันจึงเหลือรอบเดียว */
-async function liveHydrate(pre) {
-  const preBoot = pre && pre.boot;
+    ยิงทุกคำขอที่ไม่ขึ้นต่อกันพร้อมกัน เวลารวมจึงเท่ากับคำขอที่ช้าที่สุดเพียงคำขอเดียว
+    เคยลองย้ายคำขอเหล่านี้ไปรวมกับ auth.login เพื่อลดจำนวนรอบ แต่ช้าลง
+    เพราะงานที่เคยวิ่งคู่ขนานในหลายอินสแตนซ์ กลายเป็นต่อแถวกันในอินสแตนซ์เดียว */
+async function liveHydrate() {
   liveBusy(1);
   try {
     const me = S.user;
@@ -8787,19 +8787,13 @@ async function liveHydrate(pre) {
        Apps Script ตอบแต่ละคำขอหลายวินาที การเรียงกันจึงบวกเวลากันตรง ๆ
        assess.bulk คัดนักศึกษาตามสิทธิ์ที่ฝั่งเซิร์ฟเวอร์เอง จึงไม่ต้องรอรายชื่อผู้ใช้ก่อน
        เวลารวมจึงเท่ากับคำขอที่ช้าที่สุดเพียงคำขอเดียว แทนที่จะเป็นผลบวกของทุกคำขอ */
-    /* ส่วนใดได้มาพร้อมคำตอบของการยืนยันตัวตนแล้ว ก็ไม่ต้องยิงซ้ำ
-       ที่เหลือยิงพร้อมกันทั้งหมด เวลารวมจึงเท่ากับคำขอที่ช้าที่สุดเพียงคำขอเดียว */
-    const heavy = Promise.all([
-      (pre && pre.assess) ? Promise.resolve(pre.assess) : API.call('assess.bulk', {}).catch(() => null),
-      (pre && pre.evidence) ? Promise.resolve(pre.evidence)
-        : (isStudent ? API.call('evidence.list', {student_id: me.id}).catch(() => null) : Promise.resolve(null)),
-      (pre && pre.exam) ? Promise.resolve(pre.exam)
-        : (isStudent ? API.call('exam.results', {student_id: me.id}).catch(() => null) : Promise.resolve(null)),
+    loaderSet(62, 'กำลังโหลดข้อมูลทั้งหมดพร้อมกัน');
+    const [bootRes, bulkRes, evRes, examRes] = await Promise.all([
+      API.call('boot.data', {}).catch(e => ({__err: e})),
+      API.call('assess.bulk', {}).catch(() => null),
+      isStudent ? API.call('evidence.list', {student_id: me.id}).catch(() => null) : Promise.resolve(null),
+      isStudent ? API.call('exam.results', {student_id: me.id}).catch(() => null) : Promise.resolve(null),
     ]);
-
-    loaderSet(62, preBoot ? 'กำลังเตรียมกรอบสมรรถนะและรายชื่อผู้ใช้' : 'กำลังโหลดข้อมูลทั้งหมดพร้อมกัน');
-    const bootRes = preBoot ? preBoot
-      : await API.call('boot.data', {}).catch(e => ({__err: e}));
 
     let boot = bootRes;
     if (boot && boot.__err) {
@@ -8818,7 +8812,7 @@ async function liveHydrate(pre) {
     }
 
     /* 2) ผู้ใช้งาน */
-    let users = ((boot && boot.users) || []).map(mapUser);
+    let users = ((boot && boot.users) || []).map(mapUser).filter(Boolean);
     if (!users.some(u => u.id === me.id)) users = users.concat([me]);
     USERS = users;
     S.user = userById(me.id) || me;
@@ -8840,9 +8834,8 @@ async function liveHydrate(pre) {
     else if (!LIVE.bankLive) { BANK = buildBank(); bankChanged(); }
 
     /* 5) ผลรายตัวชี้วัด ต้องทำหลังใส่กรอบสมรรถนะ เพราะการรวมคะแนนใช้จำนวนระดับจากกรอบ */
-    loaderSet(84, 'กำลังรอผลการประเมินจากฐานข้อมูล');
+    loaderSet(84, 'กำลังประมวลผลการประเมิน');
     const role = S.role;
-    const [bulkRes, evRes, examRes] = await heavy;
     let bulkOk = 0;
     if (bulkRes && bulkRes.students) {
       Object.keys(bulkRes.students).forEach(sid => {
@@ -8861,10 +8854,11 @@ async function liveHydrate(pre) {
     loaderSet(95, 'เตรียมหน้าจอ');
     render();
 
-    /* 6ก) เมทริกซ์การตอบข้อสอบจริงทั้งคณะ ใช้เป็นข้อมูลตั้งต้นของคุณภาพข้อสอบ DIF
-       แบบจำลองเชิงลึก และ DeepCDM ดึงเบื้องหลังไม่ให้ขวางการเข้าใช้งาน */
-    if (['Administrator', 'Program Chair', 'Dean', 'Lecturer', 'MajorAdvisor'].includes(role))
-      loadExamMatrix().then(() => render());
+    /* 6ก) เมทริกซ์การตอบข้อสอบจริงไม่ดึงตอนเข้าสู่ระบบแล้ว
+       เดิมดึงทุกครั้งที่ผู้ดูแลหรือผู้ประเมินเข้าระบบ ทั้งที่หน้าส่วนใหญ่ไม่ได้ใช้
+       เป็นคำขอเพิ่มอีกหนึ่งรอบที่อ่าน ExamAnswers ทั้งชีต ทำให้การเข้าใช้งานหนักขึ้นโดยเปล่าประโยชน์
+       ย้ายไปดึงตอนเปิดหน้าที่ใช้จริง (EDM, XAI, คุณภาพข้อสอบ, โมเดลวัดผล, ความสอดคล้อง)
+       ซึ่งทำอยู่แล้วในตัวจัดการเมนู และมีปุ่มให้ดึงเองได้ */
 
     /* 6) คลังข้อสอบว่างเปล่า ค่อยซิงก์ชุดตั้งต้นทีหลัง ไม่ให้ขวางการเข้าใช้งาน */
     const staff = ['Administrator', 'Program Chair'].includes(role);
@@ -9122,18 +9116,19 @@ async function liveLogin(email, pw) {
   try {
 
     /* 1. Authentication */
-    /* ขอข้อมูลตั้งต้นกลับมาพร้อมการยืนยันตัวตนในคำขอเดียว
-       Apps Script มีค่าโสหุ้ยราวสามวินาทีต่อหนึ่งคำขอก่อนโค้ดจะเริ่มทำงาน
-       การรวมสองคำขอเป็นคำขอเดียวจึงตัดเวลารอไปได้ราวหนึ่งรอบเต็ม
-       เซิร์ฟเวอร์รุ่นก่อนที่ยังไม่รู้จัก with_boot จะไม่ส่ง boot กลับมา
-       หน้าเว็บก็ถอยไปเรียก boot.data เองตามเดิม จึงยังใช้งานได้ทั้งสองรุ่น */
     const r = await API.call('auth.login', {
       email,
       password: pw,
-      ua: navigator.userAgent,
-      with_boot: true
+      ua: navigator.userAgent
     });
     loaderSet(45, 'ยืนยันตัวตนสำเร็จ กำลังเตรียมสิทธิ์การใช้งาน');
+
+    /* คำตอบต้องมีข้อมูลบัญชีเสมอ ถ้าไม่มีแปลว่าคำตอบผิดรูป
+       เดิมจะไประเบิดที่ mapUser เป็นข้อความ Cannot read properties of undefined (reading 'role')
+       ซึ่งผู้ใช้อ่านแล้วไม่รู้ว่าเกิดอะไรขึ้นและต้องทำอย่างไรต่อ */
+    if (!r || !r.user)
+      throw new Error('เซิร์ฟเวอร์ตอบกลับไม่ครบถ้วน (ไม่มีข้อมูลบัญชี) กรุณาลองใหม่อีกครั้ง '
+        + 'หากยังเป็นเหมือนเดิม ให้ตรวจสอบว่า deploy Code.gs รุ่นล่าสุดแล้ว');
 
     /* 2. Token */
     API.token = r.token;
@@ -9166,13 +9161,15 @@ async function liveLogin(email, pw) {
           ผู้ใช้จึงเห็นแดชบอร์ดที่มีข้อมูลครบตั้งแต่ครั้งแรก
           ไม่ใช่หน้าว่างที่ค่อย ๆ เติมข้อมูลเข้ามาทีหลัง */
     liveBusy(-1);
-    loaderSet(60, r.boot ? 'ได้ข้อมูลทั้งหมดมาพร้อมกันแล้ว กำลังประมวลผล'
-                         : 'กำลังโหลดกรอบสมรรถนะและรายชื่อผู้ใช้');
+    loaderSet(60, 'กำลังโหลดกรอบสมรรถนะและรายชื่อผู้ใช้');
 
-    try { await liveHydrate(r); }
+    try { await liveHydrate(); }
     catch (err) {
       console.warn('[PTRU] liveHydrate failed:', err);
-      S.notice = 'เข้าสู่ระบบสำเร็จ แต่โหลดข้อมูลบางส่วนไม่สำเร็จ กดปุ่มซิงก์ข้อมูลเพื่อลองใหม่';
+      /* บอกสาเหตุจริงติดไปด้วย เดิมบอกแต่ว่า "โหลดข้อมูลบางส่วนไม่สำเร็จ"
+         พอเกิดปัญหาจึงไล่หาต้นเหตุไม่ได้ว่าค้างที่คำสั่งใด */
+      S.notice = 'เข้าสู่ระบบสำเร็จ แต่โหลดข้อมูลบางส่วนไม่สำเร็จ กดปุ่มซิงก์ข้อมูลเพื่อลองใหม่'
+        + ((err && err.message) ? ' · ' + err.message : '');
     }
 
     loaderHide();
@@ -9620,7 +9617,7 @@ document.addEventListener('click', e => {
         role: d.role, program_id: d.program || '', year: d.year || '', school: d.school || '',
         status: d.status};
       const reload = async () => {
-        try { const r = await API.call('users.list', {}); USERS = (r.users || []).map(mapUser); } catch (x) {}
+        try { const r = await API.call('users.list', {}); USERS = (r.users || []).map(mapUser).filter(Boolean); } catch (x) {}
       };
       if (it.id) {
         livePush('users.update', Object.assign({user_id: it.id}, body), 'บันทึกบัญชีไปยังฐานข้อมูลแล้ว',
@@ -9650,11 +9647,11 @@ document.addEventListener('click', e => {
     }
     case 'usrdel':
       livePush('users.delete', {user_id: it.id}, 'ดำเนินการลบหรือระงับบัญชีในฐานข้อมูลแล้ว',
-        async () => { try { const r = await API.call('users.list', {}); USERS = (r.users || []).map(mapUser); } catch (x) {} });
+        async () => { try { const r = await API.call('users.list', {}); USERS = (r.users || []).map(mapUser).filter(Boolean); } catch (x) {} });
       break;
     case 'appok':
       livePush('reg.approve', {reg_id: it.id}, 'อนุมัติคำขอในฐานข้อมูลแล้ว',
-        async () => { try { const r = await API.call('users.list', {}); USERS = (r.users || []).map(mapUser); } catch (x) {} });
+        async () => { try { const r = await API.call('users.list', {}); USERS = (r.users || []).map(mapUser).filter(Boolean); } catch (x) {} });
       break;
     case 'apprej':
       livePush('reg.reject', {reg_id: it.id, reason: ''}, 'บันทึกการปฏิเสธคำขอในฐานข้อมูลแล้ว');
@@ -9967,14 +9964,15 @@ async function liveConnect(retry) {
     loaderSet(15, 'ตรวจสอบเซสชันเดิมกับฐานข้อมูล');
     render();
     try {
-      const me = await API.call('auth.me', {with_boot: true});
+      const me = await API.call('auth.me', {});
+      if (!me || !me.user) throw new Error('เซสชันเดิมใช้ไม่ได้');
       const u = mapUser(me.user);
       if (Array.isArray(me.roles) && me.roles.length) u.roles = me.roles.filter(Boolean);
       LIVE.on = true; LIVE.checking = false; LIVE.session = true; LIVE.err = '';
       S.user = u; S.role = me.active_role || u.roles[0]; S.page = 'dashboard';
-      loaderSet(55, me.boot ? 'ได้ข้อมูลตั้งต้นมาพร้อมกันแล้ว' : 'กำลังโหลดข้อมูลของท่าน');
+      loaderSet(55, 'กำลังโหลดข้อมูลของท่าน');
       render();
-      try { await liveHydrate(me); } catch (e) { console.warn('[PTRU] hydrate:', e); }
+      try { await liveHydrate(); } catch (e) { console.warn('[PTRU] hydrate:', e); }
       loaderHide(); render();
       liveConnect(false);        // ตรวจสภาพระบบต่อเบื้องหลัง ไม่ให้ขวางการใช้งาน
       return;
